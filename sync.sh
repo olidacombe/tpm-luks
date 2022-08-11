@@ -2,4 +2,4 @@
 
 set -xeuo pipefail
 
-rsync -Pav --exclude=target . tipi:tpm-luks/
+rsync -Pav --exclude={target,.git} . tipi:tpm-luks/
