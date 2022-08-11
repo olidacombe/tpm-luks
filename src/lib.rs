@@ -1,12 +1,11 @@
-///
-/// # Get Started
-///
-/// ```bash
-/// # at basecamp
-/// fswatch -o . | xargs -n1 -I{} ./sync.sh
-/// # on remote (e.g. Metal) machine
-/// TCTI=device:/dev/tpm0 cargo watch -x test
-/// ```
+//! # Get Started
+//!
+//! ```bash
+//! # at basecamp
+//! fswatch -o . | xargs -n1 -I{} ./sync.sh
+//! # on remote (e.g. Metal) machine
+//! TCTI=device:/dev/tpm0 cargo watch -x test
+//! ```
 
 #[cfg(test)]
 mod tests {
