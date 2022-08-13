@@ -7,11 +7,13 @@
 //! TCTI=device:/dev/tpm0 cargo watch -x "test -- --nocapture"
 //! ```
 
+use once_cell::sync::Lazy;
+use std::sync::Mutex;
 use tss_esapi::{tcti_ldr::TctiNameConf, Context, Result as TSSResult};
 
-fn get_context() -> TSSResult<Context> {
-    Context::new(TctiNameConf::from_environment_variable()?)
-}
+static CONTEXT: Lazy<Mutex<Context>> = Lazy::new(|| {
+    Mutex::new(Context::new(TctiNameConf::from_environment_variable().unwrap()).unwrap())
+});
 
 #[cfg(test)]
 mod tests {
@@ -21,13 +23,20 @@ mod tests {
     #[test]
     fn yada() -> Result<()> {
         use tss_esapi::abstraction::nv::list;
-        let mut context = get_context()?;
+        let mut context = CONTEXT.lock().unwrap();
         let nvs = list(&mut context)?;
         for (_, name) in nvs {
             if let Ok(s) = std::str::from_utf8(name.value()) {
                 dbg!(s);
             }
         }
+        Ok(())
+    }
+
+    //https://tpm2-software.github.io/2020/04/13/Disk-Encryption.html#pcr-policy-authentication---access-control-of-sealed-pass-phrase-on-tpm2-with-pcr-sealing
+    #[test]
+    fn seal_101() -> Result<()> {
+        let mut context = CONTEXT.lock().unwrap();
         Ok(())
     }
 
