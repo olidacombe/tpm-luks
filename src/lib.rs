@@ -51,6 +51,7 @@ mod tests {
         use tss_esapi::constants::session_type::SessionType;
         use tss_esapi::interface_types::algorithm::PublicAlgorithm;
         use tss_esapi::interface_types::resource_handles::Hierarchy;
+        use tss_esapi::interface_types::session_handles::PolicySession;
         use tss_esapi::structures::{
             Digest, KeyedHashScheme, MaxBuffer, PublicBuilder, PublicKeyedHashParameters,
         };
@@ -73,32 +74,24 @@ mod tests {
             .unwrap();
         let mut context = CONTEXT.lock().unwrap();
 
-        //let hmac = context
-        //.execute_with_nullauth_session(|ctx| {
-        //let key = ctx
-        //.create_primary(Hierarchy::Owner, key_pub, None, None, None, None)
-        //.unwrap();
-        //Ok::<(), tss_esapi::Error>(())
-        //})
-        //.unwrap();
-
         let rev = context
             .get_tpm_property(PropertyTag::Revision)
             .expect("Wrong value from TPM")
             .expect("Value is not supported");
         assert_eq!(rev, 164);
 
-        let session = context
+        let session: PolicySession = context
             .start_auth_session(
                 None,
                 None,
                 None,
-                SessionType::Hmac,
+                SessionType::Policy,
                 SymmetricDefinition::AES_256_CFB,
                 HashingAlgorithm::Sha256,
             )
             .expect("Failed to create session")
-            .expect("Received invalid handle");
+            .expect("Received invalid handle")
+            .try_into()?;
         Ok(())
     }
 
