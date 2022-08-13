@@ -8,4 +8,5 @@ curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
 apt-get update
 apt-get install build-essential
 apt-get install pkg-config
-apt-get install libtss2-dev
+apt-get install libtss2-dev tss2
+apt-get install swtpm{,-tools}
