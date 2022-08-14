@@ -22,9 +22,9 @@ jobs:
     services:
       swtpm:
         image: 'olidacombe/swtpm'
-        ports:
-          - 2321:2321
-          - 2322:2322
+        #ports:
+          #- 2321:2321
+          #- 2322:2322
     steps:
       - name: wtf
         run: curl swtpm
