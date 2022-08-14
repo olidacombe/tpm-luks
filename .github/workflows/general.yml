@@ -17,6 +17,12 @@ jobs:
   test:
     name: Test
     runs-on: ubuntu-latest
+    services:
+      swtpm:
+        image: 'olidacombe/swtpm'
+        ports:
+          - 2321:2321
+          - 2322:2322
     steps:
       - name: Checkout repository
         uses: actions/checkout@v2
@@ -40,6 +46,7 @@ jobs:
 
       - name: Run cargo test
         uses: actions-rs/cargo@v1
+        env: TCTI=swtpm:port=2321,host=127.0.0.1
         with:
           command: test
 
