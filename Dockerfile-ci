@@ -12,3 +12,4 @@ RUN apt-get install -y \
 
 RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | bash -s -- -y
 ENV PATH="/root/.cargo/bin:${PATH}"
+RUN rustup default stable
