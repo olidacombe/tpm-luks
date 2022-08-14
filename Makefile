@@ -1,5 +1,4 @@
-.PHONY: ci-image dev dev-image init readme swtpm swtpm-image
-
+.PHONY: ci-image dev dev-image dev-local init readme swtpm swtpm-image
 init:
 	cargo install cargo-readme
 
@@ -19,5 +18,11 @@ ci-image:
 dev-image: ci-image swtpm
 	docker build -t tpm-luks-dev -f Dockerfile-dev .
 
-dev: dev-image
-	docker run --rm -it --name tpm-luks-dev -v $${PWD}:/tmp/src -w /tmp/src tpm-luks-dev cargo watch -x test
+dev: swtpm dev-image
+	docker run --rm -it --name tpm-luks-dev -e TCTI=swtpm:port=2321,host=host.docker.internal -v $${PWD}:/tmp/src -w /tmp/src tpm-luks-dev cargo watch -x test
+
+dev-local: swtpm
+	TCTI=swtpm:port=2321,host=127.0.0.1 cargo watch -x test
+
+sync-%:
+	fswatch -o . | xargs -n1 -I{} ./sync.sh $*/
