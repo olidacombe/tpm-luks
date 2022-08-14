@@ -46,7 +46,9 @@ jobs:
           override: true
 
       - name: Run cargo test
-        run: cargo test
+        uses: actions-rs/cargo@v1
+        with:
+          command: test
         env:
           TCTI: swtpm:port=2321,host=swtpm
 
