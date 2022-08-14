@@ -46,7 +46,8 @@ jobs:
 
       - name: Run cargo test
         uses: actions-rs/cargo@v1
-        env: TCTI=swtpm:port=2321,host=127.0.0.1
+        env:
+          TCTI: swtpm:port=2321,host=127.0.0.1
         with:
           command: test
 
