@@ -15,7 +15,16 @@ jobs:
       # Label used to access the service container
       swtpm:
         # Docker Hub image
-        image: redis
+        image: olidacombe/swtpm
+        ports:
+          - 2321
+          - 2322
+        options: >-
+          --health-cmd "nc -vz localhost 2321 && nc -vz localhost 2322"
+          --health-interval 30s
+          --health-timeout 10s
+          --health-retries 5
+          --health-start-period 30s
 
     steps:
       - name: resolve
