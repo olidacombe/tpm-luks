@@ -13,9 +13,9 @@ jobs:
     # Service containers to run with `container-job`
     services:
       # Label used to access the service container
-      redis:
+      swtpm:
         # Docker Hub image
-        image: redis
+        image: olidacombe/swtpm
 
     steps:
       - name: resolve
