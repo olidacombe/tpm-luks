@@ -19,4 +19,4 @@ jobs:
 
     steps:
       - name: resolve
-        run: curl redis
+        run: curl swtpm
