@@ -9,6 +9,9 @@ RUN apt-get install -y \
 COPY swtpm-entrypoint.sh /entrypoint.sh
 RUN chmod +x /entrypoint.sh
 
-HEALTHCHECK CMD nc -vz localhost 2321 && nc -vz localhost 2322
+HEALTHCHECK --interval=10s --timeout=2s --retries=3\
+	CMD nc -vz localhost 2321 \
+	&& nc -vz localhost 2322 \
+	|| exit 1
 
 ENTRYPOINT ["/entrypoint.sh"]
