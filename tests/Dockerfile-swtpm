@@ -1,8 +1,14 @@
 FROM ubuntu:22.04
 
 RUN apt-get update
-RUN apt-get install -y tpm2-abrmd swtpm swtpm-tools
+RUN apt-get install -y \
+	netcat \
+	swtpm \
+	swtpm-tools \
+	tpm2-abrmd 
 COPY swtpm-entrypoint.sh /entrypoint.sh
 RUN chmod +x /entrypoint.sh
+
+HEALTHCHECK CMD nc -vz localhost 2321 && nc -vz localhost 2322
 
 ENTRYPOINT ["/entrypoint.sh"]
