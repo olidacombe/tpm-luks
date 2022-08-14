@@ -27,7 +27,7 @@ jobs:
           #- 2322:2322
     steps:
       - name: seriously
-        run: uname -a
+        run: cat /etc/debian_version
       - name: wtf
         run: curl swtpm
       - name: Checkout repository
