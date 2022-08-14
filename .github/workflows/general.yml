@@ -21,13 +21,10 @@ jobs:
       image: olidacombe/tpm-luks-ci
     services:
       swtpm:
-        image: 'olidacombe/swtpm'
-        #ports:
-          #- 2321:2321
-          #- 2322:2322
+        image: olidacombe/swtpm
+        options: >-
+          --security-opt seccomp=unconfined
     steps:
-      - name: wtf
-        run: curl swtpm
       - name: Checkout repository
         uses: actions/checkout@v2
 
@@ -49,7 +46,9 @@ jobs:
           override: true
 
       - name: Run cargo test
-        run: cargo test
+        uses: actions-rs/cargo@v1
+        with:
+          command: test
         env:
           TCTI: swtpm:port=2321,host=swtpm
 

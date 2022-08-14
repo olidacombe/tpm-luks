@@ -6,6 +6,7 @@ set -xeuo pipefail
 # Run the TPM SWTPM server #
 ############################
 mkdir /tmp/tpmdir
+chown tss:root /tmp/tpmdir
 swtpm_setup --tpm2 \
     --tpmstate /tmp/tpmdir \
     --createek --decryption --create-ek-cert \
