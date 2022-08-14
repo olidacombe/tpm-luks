@@ -5,6 +5,7 @@ RUN apt-get install -y \
 	build-essential \
 	curl \
 	libtss2-dev \
+	netcat \
 	pkg-config \
 	swtpm \
 	swtpm-tools \
