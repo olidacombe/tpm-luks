@@ -44,12 +44,12 @@ jobs:
           toolchain: stable
           override: true
 
+      - name: Build CI image
+        run: docker build -t tpm-luks-ci -f Dockerfile-ci .
       - name: Run cargo test
-        uses: actions-rs/cargo@v1
+        run: docker run -e TCTI=swtpm:port=2321,host=swtpm -v $(pwd):/tmp/tpm-luks -w /tmp/tpm-luks tpm-luks-ci cargo test
         env:
           TCTI: swtpm:port=2321,host=swtpm
-        with:
-          command: test
 
   fmt:
     name: Rustfmt
