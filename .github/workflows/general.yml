@@ -27,7 +27,7 @@ jobs:
           - 2322:2322
     steps:
       - name: wtf
-        run: host swtpm
+        run: curl swtpm
       - name: Checkout repository
         uses: actions/checkout@v2
 
