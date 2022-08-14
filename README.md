@@ -4,7 +4,7 @@
 
 ```bash
 # at basecamp
-fswatch -o . | xargs -n1 -I{} ./sync.sh
+fswatch -o . | xargs -n1 -I{} ./sync.sh {machine:dir}
 # on remote (e.g. Metal) machine
 # TCTI=device:/dev/tpm0 cargo watch -x "test -- --nocapture"
 mkdir /tmp/mytpm
