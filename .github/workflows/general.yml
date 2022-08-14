@@ -26,6 +26,8 @@ jobs:
           #- 2321:2321
           #- 2322:2322
     steps:
+      - name: seriously
+        run: uname -a
       - name: wtf
         run: curl swtpm
       - name: Checkout repository
