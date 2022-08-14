@@ -17,6 +17,8 @@ jobs:
   test:
     name: Test
     runs-on: ubuntu-latest
+    container:
+      image: olidacombe/tpm-luks-ci
     services:
       swtpm:
         image: 'olidacombe/swtpm'
@@ -27,27 +29,25 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v2
 
-      - name: Cache dependencies
-        id: cache-dependencies
-        uses: actions/cache@v2
-        with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-            target
-          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+      #- name: Cache dependencies
+        #id: cache-dependencies
+        #uses: actions/cache@v2
+        #with:
+          #path: |
+            #~/.cargo/registry
+            #~/.cargo/git
+            #target
+          #key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
 
-      - name: Install stable toolchain
-        uses: actions-rs/toolchain@v1
-        with:
-          profile: minimal
-          toolchain: stable
-          override: true
+      #- name: Install stable toolchain
+        #uses: actions-rs/toolchain@v1
+        #with:
+          #profile: minimal
+          #toolchain: stable
+          #override: true
 
-      - name: Build CI image
-        run: docker build -t tpm-luks-ci -f Dockerfile-ci .
       - name: Run cargo test
-        run: docker run -e TCTI=swtpm:port=2321,host=swtpm -v $(pwd):/tmp/tpm-luks -w /tmp/tpm-luks tpm-luks-ci cargo test
+        run: cargo test
         env:
           TCTI: swtpm:port=2321,host=swtpm
 
