@@ -16,7 +16,7 @@ jobs:
       swtpm:
         # Docker Hub image
         image: olidacombe/swtpm
-        options: <-
+        options: >-
           --security-opt seccomp=unconfined
 
     steps:
