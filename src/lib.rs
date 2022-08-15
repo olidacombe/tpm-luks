@@ -10,16 +10,23 @@
 //! make dev
 //! ```
 
+use once_cell::sync::Lazy;
+use std::sync::{Mutex, MutexGuard};
 use tss_esapi::Error;
 
-pub struct Context(tss_esapi::Context);
+pub struct Context(MutexGuard<'static, tss_esapi::Context>);
+
+static CONTEXT: Lazy<Mutex<tss_esapi::Context>> = Lazy::new(|| {
+    use tss_esapi::tcti_ldr::TctiNameConf;
+
+    let context =
+        tss_esapi::Context::new(TctiNameConf::from_environment_variable().unwrap()).unwrap();
+    Mutex::new(context)
+});
 
 impl Context {
-    pub fn new() -> Result<Context, Error> {
-        use tss_esapi::tcti_ldr::TctiNameConf;
-        Ok(Self(tss_esapi::Context::new(
-            TctiNameConf::from_environment_variable().unwrap(),
-        )?))
+    pub fn new() -> Self {
+        Self(CONTEXT.lock().unwrap())
     }
 
     pub fn revision(&mut self) -> Result<Option<u32>, Error> {
@@ -35,7 +42,7 @@ impl Context {
         };
         use tss_esapi::structures::SymmetricDefinition;
 
-        self.0.startup(StartupType::Clear);
+        self.0.startup(StartupType::Clear).unwrap();
 
         let _session: PolicySession = self
             .0
@@ -73,7 +80,7 @@ mod tests {
 
     #[test]
     fn get_revision() -> Result<()> {
-        let mut context = Context::new()?;
+        let mut context = Context::new();
         let revision = context.revision()?;
         assert!(revision.is_some());
 
@@ -83,7 +90,7 @@ mod tests {
     //https://tpm2-software.github.io/2020/04/13/Disk-Encryption.html#pcr-policy-authentication---access-control-of-sealed-pass-phrase-on-tpm2-with-pcr-sealing
     #[test]
     fn seal() -> Result<()> {
-        let mut context = Context::new()?;
+        let mut context = Context::new();
 
         context.seal()?;
 
