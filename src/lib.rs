@@ -10,56 +10,33 @@
 //! make dev
 //! ```
 
-use once_cell::sync::Lazy;
-use std::sync::Mutex;
-use tss_esapi::{tcti_ldr::TctiNameConf, Context};
+use tss_esapi::Error;
 
-static CONTEXT: Lazy<Mutex<Context>> = Lazy::new(|| {
-    Mutex::new(Context::new(TctiNameConf::from_environment_variable().unwrap()).unwrap())
-});
+pub struct Context(tss_esapi::Context);
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use eyre::Result;
-
-    #[test]
-    fn list_nvs() -> Result<()> {
-        use tss_esapi::abstraction::nv::list;
-        let mut context = CONTEXT.lock().unwrap();
-        let nvs = list(&mut context)?;
-        for (_, name) in nvs {
-            if let Ok(s) = std::str::from_utf8(name.value()) {
-                dbg!(s);
-            }
-        }
-        Ok(())
+impl Context {
+    pub fn new() -> Result<Context, Error> {
+        use tss_esapi::tcti_ldr::TctiNameConf;
+        Ok(Self(tss_esapi::Context::new(
+            TctiNameConf::from_environment_variable().unwrap(),
+        )?))
     }
 
-    #[test]
-    fn get_revision() -> Result<()> {
+    pub fn revision(&mut self) -> Result<Option<u32>, Error> {
         use tss_esapi::constants::property_tag::PropertyTag;
-        let mut context = CONTEXT.lock().unwrap();
 
-        context
-            .get_tpm_property(PropertyTag::Revision)
-            .expect("Wrong value from TPM")
-            .expect("Value is not supported");
-
-        Ok(())
+        self.0.get_tpm_property(PropertyTag::Revision)
     }
 
-    //https://tpm2-software.github.io/2020/04/13/Disk-Encryption.html#pcr-policy-authentication---access-control-of-sealed-pass-phrase-on-tpm2-with-pcr-sealing
-    #[test]
-    fn seal() -> Result<()> {
+    pub fn seal(&mut self) -> Result<(), Error> {
         use tss_esapi::constants::SessionType;
         use tss_esapi::interface_types::{
             algorithm::HashingAlgorithm, session_handles::PolicySession,
         };
         use tss_esapi::structures::SymmetricDefinition;
-        let mut context = CONTEXT.lock().unwrap();
 
-        let _session: PolicySession = context
+        let _session: PolicySession = self
+            .0
             .start_auth_session(
                 None,
                 None,
@@ -67,10 +44,46 @@ mod tests {
                 SessionType::Policy,
                 SymmetricDefinition::AES_256_CFB,
                 HashingAlgorithm::Sha256,
-            )
-            .expect("Failed to create session")
+            )?
             .expect("Received invalid handle")
             .try_into()?;
+        Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use eyre::Result;
+
+    //#[test]
+    //fn list_nvs() -> Result<()> {
+    //use tss_esapi::abstraction::nv::list;
+    //let mut context = Context::new();
+    //let nvs = list(&mut context)?;
+    //for (_, name) in nvs {
+    //if let Ok(s) = std::str::from_utf8(name.value()) {
+    //dbg!(s);
+    //}
+    //}
+    //Ok(())
+    //}
+
+    #[test]
+    fn get_revision() -> Result<()> {
+        let mut context = Context::new()?;
+        let revision = context.revision()?;
+        assert!(revision.is_some());
+
+        Ok(())
+    }
+
+    //https://tpm2-software.github.io/2020/04/13/Disk-Encryption.html#pcr-policy-authentication---access-control-of-sealed-pass-phrase-on-tpm2-with-pcr-sealing
+    #[test]
+    fn seal() -> Result<()> {
+        let mut context = Context::new()?;
+
+        context.seal()?;
 
         Ok(())
     }
