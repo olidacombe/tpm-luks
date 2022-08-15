@@ -29,11 +29,13 @@ impl Context {
     }
 
     pub fn seal(&mut self) -> Result<(), Error> {
-        use tss_esapi::constants::SessionType;
+        use tss_esapi::constants::{SessionType, StartupType};
         use tss_esapi::interface_types::{
             algorithm::HashingAlgorithm, session_handles::PolicySession,
         };
         use tss_esapi::structures::SymmetricDefinition;
+
+        self.0.startup(StartupType::Clear);
 
         let _session: PolicySession = self
             .0
