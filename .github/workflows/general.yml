@@ -70,6 +70,8 @@ jobs:
   clippy:
     name: Clippy
     runs-on: ubuntu-latest
+    container:
+      image: olidacombe/tpm-luks-ci
     steps:
       - name: Checkout repository
         uses: actions/checkout@v2
