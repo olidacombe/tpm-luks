@@ -44,7 +44,7 @@ impl Context {
 
         self.0.startup(StartupType::Clear).unwrap();
 
-        let _session: PolicySession = self
+        let session: PolicySession = self
             .0
             .start_auth_session(
                 None,
@@ -56,6 +56,7 @@ impl Context {
             )?
             .expect("Received invalid handle")
             .try_into()?;
+
         Ok(())
     }
 }
