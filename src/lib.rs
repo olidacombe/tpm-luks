@@ -12,9 +12,30 @@
 
 use once_cell::sync::Lazy;
 use std::sync::{Mutex, MutexGuard};
-use tss_esapi::Error;
+use thiserror::Error;
+use tss_esapi::structures::Public;
+
+#[derive(Error, Debug)]
+pub enum TpmError {
+    #[error(transparent)]
+    TssEsapi(#[from] tss_esapi::Error),
+}
+
+pub type Result<T, E = TpmError> = core::result::Result<T, E>;
 
 pub struct Context(MutexGuard<'static, tss_esapi::Context>);
+
+static AUTOMATION_KEY_HANDLE: Lazy<tss_esapi::handles::KeyHandle> = Lazy::new(|| 0x81010001.into());
+
+static PCR_SELECTION_LIST: Lazy<tss_esapi::structures::pcr_selection_list::PcrSelectionList> =
+    Lazy::new(|| {
+        use tss_esapi::interface_types::algorithm::HashingAlgorithm;
+        use tss_esapi::structures::pcr_slot::PcrSlot;
+        tss_esapi::structures::pcr_selection_list::PcrSelectionList::builder()
+            .with_selection(HashingAlgorithm::Sha256, &[PcrSlot::Slot0, PcrSlot::Slot7])
+            .build()
+            .unwrap()
+    });
 
 static CONTEXT: Lazy<Mutex<tss_esapi::Context>> = Lazy::new(|| {
     use tss_esapi::tcti_ldr::TctiNameConf;
@@ -24,18 +45,41 @@ static CONTEXT: Lazy<Mutex<tss_esapi::Context>> = Lazy::new(|| {
     Mutex::new(context)
 });
 
+fn pubkey() -> Result<Public> {
+    use tss_esapi::attributes::ObjectAttributesBuilder;
+    use tss_esapi::interface_types::algorithm::{HashingAlgorithm, PublicAlgorithm};
+    use tss_esapi::structures::{
+        Digest, KeyedHashScheme, PublicBuilder, PublicKeyedHashParameters,
+    };
+
+    let object_attributes = ObjectAttributesBuilder::new()
+        .with_sign_encrypt(true)
+        .with_sensitive_data_origin(true)
+        .with_user_with_auth(true)
+        .build()?;
+    Ok(PublicBuilder::new()
+        .with_public_algorithm(PublicAlgorithm::KeyedHash)
+        .with_name_hashing_algorithm(HashingAlgorithm::Sha256)
+        .with_object_attributes(object_attributes)
+        .with_keyed_hash_parameters(PublicKeyedHashParameters::new(
+            KeyedHashScheme::HMAC_SHA_256,
+        ))
+        .with_keyed_hash_unique_identifier(Digest::default())
+        .build()?)
+}
+
 impl Context {
     pub fn new() -> Self {
         Self(CONTEXT.lock().unwrap())
     }
 
-    pub fn revision(&mut self) -> Result<Option<u32>, Error> {
+    pub fn revision(&mut self) -> Result<Option<u32>> {
         use tss_esapi::constants::property_tag::PropertyTag;
 
-        self.0.get_tpm_property(PropertyTag::Revision)
+        Ok(self.0.get_tpm_property(PropertyTag::Revision)?)
     }
 
-    pub fn seal(&mut self) -> Result<(), Error> {
+    pub fn seal(&mut self) -> Result<()> {
         use tss_esapi::constants::{SessionType, StartupType};
         use tss_esapi::interface_types::{
             algorithm::HashingAlgorithm, session_handles::PolicySession,
@@ -43,6 +87,8 @@ impl Context {
         use tss_esapi::structures::SymmetricDefinition;
 
         self.0.startup(StartupType::Clear).unwrap();
+
+        let key = pubkey()?;
 
         let session: PolicySession = self
             .0
@@ -56,6 +102,11 @@ impl Context {
             )?
             .expect("Received invalid handle")
             .try_into()?;
+
+        // TODO
+        //self.0.policy_pcr(session, , *PCR_SELECTION_LIST)?;
+        //self.0
+        //.create(*AUTOMATION_KEY_HANDLE, key, None, None, None, None)?;
 
         Ok(())
     }
