@@ -1,7 +1,5 @@
 .PHONY: ci-image dev dev-image dev-local help init readme swtpm swtpm-image
-
-help: ## Show this help
-	@egrep -h '\s##\s' $(MAKEFILE_LIST) | sort | awk 'BEGIN {FS = ":.*?## "}; {printf "\033[36m%-20s\033[0m %s\n", $$1, $$2}'
+.DEFAULT_GOAL := help
 
 init: ## install required packages
 	cargo install cargo-readme
@@ -27,6 +25,9 @@ dev: swtpm dev-image ## run cargo test (with `cargo watch`) inside a dev contain
 
 dev-local: swtpm ## run cargo test (with `cargo watch`) locally - if you're already on a suitable system like linux
 	TCTI=swtpm:port=2321,host=127.0.0.1 cargo watch -x test
+
+help: ## Show this help
+	@egrep -h '\s##\s' $(MAKEFILE_LIST) | sort | awk 'BEGIN {FS = ":.*?## "}; {printf "\033[36m%-20s\033[0m %s\n", $$1, $$2}'
 
 sync-%: ## watch and sync files to test instance, e.g. `make sync-my-test-machine`
 	fswatch -o . | xargs -n1 -I{} ./sync.sh $*/
