@@ -21,6 +21,7 @@ dev-image: ci-image swtpm ## build docker image for use as a development environ
 	docker build -t tpm-luks-dev -f Dockerfile-dev .
 
 dev: swtpm dev-image ## run cargo test (with `cargo watch`) inside a dev container
+	-docker kill tpm-luks-dev
 	docker run --rm -it --name tpm-luks-dev -e TCTI=swtpm:port=2321,host=host.docker.internal -v $${PWD}:/tmp/src -w /tmp/src tpm-luks-dev cargo watch -x test
 
 dev-local: swtpm ## run cargo test (with `cargo watch`) locally - if you're already on a suitable system like linux

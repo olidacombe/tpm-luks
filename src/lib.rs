@@ -13,10 +13,12 @@
 use once_cell::sync::Lazy;
 use std::sync::{Mutex, MutexGuard};
 use thiserror::Error;
-use tss_esapi::structures::Public;
+use tss_esapi::structures::{Digest, PcrSelectionList, Public};
 
 #[derive(Error, Debug)]
 pub enum TpmError {
+    #[error("PCR digest length > 1")]
+    PcrDigestLength,
     #[error(transparent)]
     TssEsapi(#[from] tss_esapi::Error),
 }
@@ -48,9 +50,7 @@ static CONTEXT: Lazy<Mutex<tss_esapi::Context>> = Lazy::new(|| {
 fn pubkey() -> Result<Public> {
     use tss_esapi::attributes::ObjectAttributesBuilder;
     use tss_esapi::interface_types::algorithm::{HashingAlgorithm, PublicAlgorithm};
-    use tss_esapi::structures::{
-        Digest, KeyedHashScheme, PublicBuilder, PublicKeyedHashParameters,
-    };
+    use tss_esapi::structures::{KeyedHashScheme, PublicBuilder, PublicKeyedHashParameters};
 
     let object_attributes = ObjectAttributesBuilder::new()
         .with_sign_encrypt(true)
@@ -79,13 +79,33 @@ impl Context {
         Ok(self.0.get_tpm_property(PropertyTag::Revision)?)
     }
 
+    /// Returns the digest for a PCR selection list only if it could be computed as a single
+    /// value.
+    fn pcr_digest(&mut self, pcr_selection_list: &PcrSelectionList) -> Result<Digest> {
+        let (_update_counter, _selection_list, digest_list) =
+            self.0.pcr_read(pcr_selection_list.clone())?;
+
+        if digest_list.len() > 1 {
+            return Err(TpmError::PcrDigestLength);
+        }
+        digest_list
+            .value()
+            .get(0)
+            .ok_or(TpmError::PcrDigestLength)
+            .map(|digest| digest.clone())
+    }
+
     pub fn seal(&mut self) -> Result<()> {
         use tss_esapi::constants::{SessionType, StartupType};
         use tss_esapi::interface_types::{
             algorithm::HashingAlgorithm, session_handles::PolicySession,
         };
+        use tss_esapi::structures::pcr_selection_list::PcrSelectionList;
+        use tss_esapi::structures::pcr_slot::PcrSlot;
         use tss_esapi::structures::SymmetricDefinition;
 
+        // TODO expose seal method only on a type which is retrieved
+        // only by clearing - all that kind of good stuff
         self.0.startup(StartupType::Clear).unwrap();
 
         let key = pubkey()?;
@@ -96,16 +116,21 @@ impl Context {
                 None,
                 None,
                 None,
-                SessionType::Policy,
+                SessionType::Trial,
                 SymmetricDefinition::AES_256_CFB,
                 HashingAlgorithm::Sha256,
             )?
             .expect("Received invalid handle")
             .try_into()?;
 
-        // TODO
-        //self.0.policy_pcr(session, , *PCR_SELECTION_LIST)?;
-        //self.0
+        let selections = PcrSelectionList::builder()
+            .with_selection(HashingAlgorithm::Sha256, &[PcrSlot::Slot7])
+            .build()?;
+
+        let digest = self.pcr_digest(&selections)?;
+
+        self.0.policy_pcr(session, digest, selections)?;
+
         //.create(*AUTOMATION_KEY_HANDLE, key, None, None, None, None)?;
 
         Ok(())
