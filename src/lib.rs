@@ -110,6 +110,7 @@ impl Context {
 
         let key = pubkey()?;
 
+        // todo authed type that flushes on destruct?
         let session: PolicySession = self
             .0
             .start_auth_session(
@@ -124,6 +125,7 @@ impl Context {
             .try_into()?;
 
         let selections = PcrSelectionList::builder()
+            //.with_selection(HashingAlgorithm::Sha256, &[PcrSlot::Slot0])
             .with_selection(HashingAlgorithm::Sha256, &[PcrSlot::Slot7])
             .build()?;
 
@@ -132,6 +134,9 @@ impl Context {
         self.0.policy_pcr(session, digest, selections)?;
 
         //.create(*AUTOMATION_KEY_HANDLE, key, None, None, None, None)?;
+
+        // TODO some kind of unconditional `finally` behavior
+        self.0.clear_sessions();
 
         Ok(())
     }
