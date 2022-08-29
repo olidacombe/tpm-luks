@@ -13,7 +13,7 @@
 use once_cell::sync::Lazy;
 use std::sync::{Mutex, MutexGuard};
 use thiserror::Error;
-use tss_esapi::structures::{Digest, PcrSelectionList, Public};
+use tss_esapi::structures::{Digest, PcrSelectionList, Public, SensitiveData};
 
 #[derive(Error, Debug)]
 pub enum TpmError {
@@ -95,7 +95,7 @@ impl Context {
             .map(|digest| digest.clone())
     }
 
-    pub fn seal(&mut self) -> Result<()> {
+    pub fn seal(&mut self, data: SensitiveData) -> Result<()> {
         use tss_esapi::constants::{SessionType, StartupType};
         use tss_esapi::interface_types::{
             algorithm::HashingAlgorithm, session_handles::PolicySession,
@@ -110,8 +110,15 @@ impl Context {
 
         let key = pubkey()?;
 
+        let selections = PcrSelectionList::builder()
+            //.with_selection(HashingAlgorithm::Sha256, &[PcrSlot::Slot0])
+            .with_selection(HashingAlgorithm::Sha256, &[PcrSlot::Slot7])
+            .build()?;
+
+        let digest = self.pcr_digest(&selections)?;
+
         // todo authed type that flushes on destruct?
-        let session: PolicySession = self
+        let session = self
             .0
             .start_auth_session(
                 None,
@@ -121,19 +128,23 @@ impl Context {
                 SymmetricDefinition::AES_256_CFB,
                 HashingAlgorithm::Sha256,
             )?
-            .expect("Received invalid handle")
-            .try_into()?;
+            .expect("Received invalid handle");
+        //.try_into()?;
 
-        let selections = PcrSelectionList::builder()
-            //.with_selection(HashingAlgorithm::Sha256, &[PcrSlot::Slot0])
-            .with_selection(HashingAlgorithm::Sha256, &[PcrSlot::Slot7])
-            .build()?;
+        self.0
+            .policy_pcr(session.try_into()?, digest, selections.clone())?;
 
-        let digest = self.pcr_digest(&selections)?;
-
-        self.0.policy_pcr(session, digest, selections)?;
-
-        //.create(*AUTOMATION_KEY_HANDLE, key, None, None, None, None)?;
+        self.0.execute_with_session(Some(session), |ctx| {
+            ctx.create(
+                *AUTOMATION_KEY_HANDLE,
+                key,
+                None,
+                Some(data),
+                None,
+                Some(selections.clone()),
+            )
+            .expect("Failed to seal data");
+        });
 
         // TODO some kind of unconditional `finally` behavior
         self.0.clear_sessions();
@@ -180,7 +191,10 @@ mod tests {
     fn seal() -> Result<()> {
         let mut context = Context::new();
 
-        context.seal()?;
+        let data = SensitiveData::try_from("Hello".as_bytes().to_vec())
+            .expect("Failed to create dummy sensitive buffer");
+
+        context.seal(data)?;
 
         Ok(())
     }
