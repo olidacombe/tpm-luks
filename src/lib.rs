@@ -13,7 +13,11 @@
 use once_cell::sync::Lazy;
 use std::sync::{Mutex, MutexGuard};
 use thiserror::Error;
-use tss_esapi::structures::{Digest, PcrSelectionList, Public, SensitiveData};
+use tss_esapi::handles::KeyHandle;
+use tss_esapi::interface_types::session_handles::AuthSession;
+use tss_esapi::structures::{
+    CreatePrimaryKeyResult, Digest, PcrSelectionList, Public, SensitiveData,
+};
 
 #[derive(Error, Debug)]
 pub enum TpmError {
@@ -26,18 +30,12 @@ pub enum TpmError {
 pub type Result<T, E = TpmError> = core::result::Result<T, E>;
 
 pub struct Context(MutexGuard<'static, tss_esapi::Context>);
-
-static AUTOMATION_KEY_HANDLE: Lazy<tss_esapi::handles::KeyHandle> = Lazy::new(|| 0x81010001.into());
-
-static PCR_SELECTION_LIST: Lazy<tss_esapi::structures::pcr_selection_list::PcrSelectionList> =
-    Lazy::new(|| {
-        use tss_esapi::interface_types::algorithm::HashingAlgorithm;
-        use tss_esapi::structures::pcr_slot::PcrSlot;
-        tss_esapi::structures::pcr_selection_list::PcrSelectionList::builder()
-            .with_selection(HashingAlgorithm::Sha256, &[PcrSlot::Slot0, PcrSlot::Slot7])
-            .build()
-            .unwrap()
-    });
+pub struct OwnedContext {
+    ctx: MutexGuard<'static, tss_esapi::Context>,
+    key: KeyHandle,
+    public: Public,
+    hmac_session: AuthSession,
+}
 
 static CONTEXT: Lazy<Mutex<tss_esapi::Context>> = Lazy::new(|| {
     use tss_esapi::tcti_ldr::TctiNameConf;
@@ -73,6 +71,75 @@ impl Context {
         Self(CONTEXT.lock().unwrap())
     }
 
+    pub fn own(mut self) -> Result<OwnedContext> {
+        use tss_esapi::attributes::SessionAttributesBuilder;
+        use tss_esapi::constants::{SessionType, StartupType};
+        use tss_esapi::handles::KeyHandle;
+        use tss_esapi::interface_types::algorithm::RsaSchemeAlgorithm;
+        use tss_esapi::interface_types::key_bits::RsaKeyBits;
+        use tss_esapi::interface_types::{
+            algorithm::HashingAlgorithm, resource_handles::Hierarchy,
+            session_handles::PolicySession,
+        };
+        use tss_esapi::structures::pcr_selection_list::PcrSelectionList;
+        use tss_esapi::structures::pcr_slot::PcrSlot;
+        use tss_esapi::structures::RsaExponent;
+        use tss_esapi::structures::RsaScheme;
+        use tss_esapi::structures::{Auth, SymmetricDefinition};
+        use tss_esapi::utils::create_unrestricted_signing_rsa_public;
+
+        let mut ctx = self.0;
+
+        ctx.startup(StartupType::Clear)?;
+        ctx.clear_sessions();
+
+        let session = ctx
+            .start_auth_session(
+                None,
+                None,
+                None,
+                SessionType::Hmac,
+                SymmetricDefinition::AES_256_CFB,
+                HashingAlgorithm::Sha256,
+            )?
+            .expect("Received invalid handle");
+
+        // Create public area for a rsa key
+        let public_area = create_unrestricted_signing_rsa_public(
+            RsaScheme::create(RsaSchemeAlgorithm::RsaSsa, Some(HashingAlgorithm::Sha256))
+                .expect("Failed to create RSA scheme"),
+            RsaKeyBits::Rsa2048,
+            RsaExponent::default(),
+        )
+        .expect("Failed to create rsa public area");
+
+        // Configure session attributes
+        let (session_attributes, session_attributes_mask) = SessionAttributesBuilder::new()
+            .with_decrypt(true)
+            .with_encrypt(true)
+            .build();
+
+        let random_digest = ctx.get_random(16).expect("Call to get_random failed");
+        let key_auth =
+            Auth::try_from(random_digest.value().to_vec()).expect("Failed to create Auth");
+
+        let CreatePrimaryKeyResult {
+            key_handle: key,
+            out_public: public,
+            ..
+        } = ctx.execute_with_session(Some(session), |ctx| {
+            ctx.create_primary(Hierarchy::Owner, public_area, None, None, None, None)
+                .expect("Failed to create primary")
+        });
+
+        Ok(OwnedContext {
+            ctx,
+            key,
+            public,
+            hmac_session: session,
+        })
+    }
+
     pub fn revision(&mut self) -> Result<Option<u32>> {
         use tss_esapi::constants::property_tag::PropertyTag;
 
@@ -96,19 +163,35 @@ impl Context {
     }
 
     pub fn seal(&mut self, data: SensitiveData) -> Result<()> {
+        use tss_esapi::attributes::SessionAttributesBuilder;
         use tss_esapi::constants::{SessionType, StartupType};
+        use tss_esapi::handles::KeyHandle;
+        use tss_esapi::interface_types::algorithm::RsaSchemeAlgorithm;
+        use tss_esapi::interface_types::key_bits::RsaKeyBits;
         use tss_esapi::interface_types::{
-            algorithm::HashingAlgorithm, session_handles::PolicySession,
+            algorithm::HashingAlgorithm, resource_handles::Hierarchy,
+            session_handles::PolicySession,
         };
         use tss_esapi::structures::pcr_selection_list::PcrSelectionList;
         use tss_esapi::structures::pcr_slot::PcrSlot;
-        use tss_esapi::structures::SymmetricDefinition;
+        use tss_esapi::structures::RsaExponent;
+        use tss_esapi::structures::RsaScheme;
+        use tss_esapi::structures::{Auth, SymmetricDefinition};
+        use tss_esapi::utils::create_unrestricted_signing_rsa_public;
 
         // TODO expose seal method only on a type which is retrieved
         // only by clearing - all that kind of good stuff
         self.0.startup(StartupType::Clear).unwrap();
 
-        let key = pubkey()?;
+        //let public = pubkey()?;
+        // Create public area for a rsa key
+        let public_area = create_unrestricted_signing_rsa_public(
+            RsaScheme::create(RsaSchemeAlgorithm::RsaSsa, Some(HashingAlgorithm::Sha256))
+                .expect("Failed to create RSA scheme"),
+            RsaKeyBits::Rsa2048,
+            RsaExponent::default(),
+        )
+        .expect("Failed to create rsa public area");
 
         let selections = PcrSelectionList::builder()
             //.with_selection(HashingAlgorithm::Sha256, &[PcrSlot::Slot0])
@@ -116,35 +199,69 @@ impl Context {
             .build()?;
 
         let digest = self.pcr_digest(&selections)?;
-
+        let (session_attributes, session_attributes_mask) = SessionAttributesBuilder::new()
+            .with_decrypt(true)
+            .with_encrypt(true)
+            .build();
         // todo authed type that flushes on destruct?
-        let session = self
+        let hmac_session = self
             .0
             .start_auth_session(
                 None,
                 None,
                 None,
-                SessionType::Trial,
+                SessionType::Hmac,
+                SymmetricDefinition::AES_256_CFB,
+                HashingAlgorithm::Sha256,
+            )?
+            .expect("Received invalid handle");
+        let policy_session = self
+            .0
+            .start_auth_session(
+                None,
+                None,
+                None,
+                SessionType::Policy,
                 SymmetricDefinition::AES_256_CFB,
                 HashingAlgorithm::Sha256,
             )?
             .expect("Received invalid handle");
         //.try_into()?;
+        //self.0
+        //.tr_sess_set_attributes(session, session_attributes, session_attributes_mask)
+        //.expect("Failed to set attributes on session");
+
+        //self.0
+        //.policy_pcr(session.try_into()?, digest, selections.clone())?;
+
+        let random_digest = self.0.get_random(16).expect("Call to get_random failed");
+        let key_auth =
+            Auth::try_from(random_digest.value().to_vec()).expect("Failed to create Auth");
 
         self.0
-            .policy_pcr(session.try_into()?, digest, selections.clone())?;
-
-        self.0.execute_with_session(Some(session), |ctx| {
-            ctx.create(
-                *AUTOMATION_KEY_HANDLE,
-                key,
-                None,
-                Some(data),
-                None,
-                Some(selections.clone()),
-            )
-            .expect("Failed to seal data");
-        });
+            .execute_with_sessions((Some(hmac_session), Some(policy_session), None), |ctx| {
+                // TODO wrap in OwnedContext type which can only be created from a Context.take_ownership method!!!
+                let primary = ctx
+                    .create_primary(
+                        Hierarchy::Owner,
+                        public_area,
+                        /*Some(key_auth),*/ None,
+                        None,
+                        None,
+                        None,
+                    )
+                    .expect("Failed to create primary");
+                // end TODO
+                //ctx.create(
+                //primary.key_handle,
+                //primary.out_public,
+                //None,
+                //Some(data),
+                //None,
+                //Some(selections.clone()),
+                //)
+                //.expect("Failed to seal data");
+            });
 
         // TODO some kind of unconditional `finally` behavior
         self.0.clear_sessions();
@@ -164,19 +281,6 @@ mod tests {
     use super::*;
     use eyre::Result;
 
-    //#[test]
-    //fn list_nvs() -> Result<()> {
-    //use tss_esapi::abstraction::nv::list;
-    //let mut context = Context::new();
-    //let nvs = list(&mut context)?;
-    //for (_, name) in nvs {
-    //if let Ok(s) = std::str::from_utf8(name.value()) {
-    //dbg!(s);
-    //}
-    //}
-    //Ok(())
-    //}
-
     #[test]
     fn get_revision() -> Result<()> {
         let mut context = Context::new();
@@ -189,12 +293,10 @@ mod tests {
     //https://tpm2-software.github.io/2020/04/13/Disk-Encryption.html#pcr-policy-authentication---access-control-of-sealed-pass-phrase-on-tpm2-with-pcr-sealing
     #[test]
     fn seal() -> Result<()> {
-        let mut context = Context::new();
-
         let data = SensitiveData::try_from("Hello".as_bytes().to_vec())
             .expect("Failed to create dummy sensitive buffer");
 
-        context.seal(data)?;
+        let mut context = Context::new().own()?;
 
         Ok(())
     }
