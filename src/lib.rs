@@ -14,6 +14,8 @@ use delegate::delegate;
 use once_cell::sync::Lazy;
 use std::sync::{Mutex, MutexGuard};
 use thiserror::Error;
+use tss_esapi::attributes::SessionAttributes;
+use tss_esapi::attributes::SessionAttributesMask;
 use tss_esapi::constants::SessionType;
 use tss_esapi::constants::StartupType;
 use tss_esapi::handles::KeyHandle;
@@ -22,6 +24,7 @@ use tss_esapi::interface_types::algorithm::HashingAlgorithm;
 use tss_esapi::interface_types::resource_handles::Hierarchy;
 use tss_esapi::interface_types::session_handles::{AuthSession, HmacSession, PolicySession};
 use tss_esapi::structures::DigestList;
+use tss_esapi::structures::MaxBuffer;
 use tss_esapi::structures::Nonce;
 use tss_esapi::structures::SymmetricDefinition;
 use tss_esapi::structures::{
@@ -92,6 +95,9 @@ impl Context {
                 outside_info: Option<Data>,
                 creation_pcrs: Option<PcrSelectionList>
             ) -> tss_esapi::Result<CreatePrimaryKeyResult>;
+            fn execute_without_session<F, T>(&mut self, f: F) -> T
+            where
+                F: FnOnce(&mut tss_esapi::Context) -> T;
             fn execute_with_session<F, T>(
                 &mut self,
                 session_handle: Option<AuthSession>,
@@ -99,11 +105,17 @@ impl Context {
             ) -> T
             where
                 F: FnOnce(&mut tss_esapi::Context) -> T;
+            fn get_random(&mut self, num_bytes: usize) -> tss_esapi::Result<Digest>;
             fn pcr_read(
                 &mut self,
                 pcr_selection_list: PcrSelectionList
             ) -> tss_esapi::Result<(u32, PcrSelectionList, DigestList)>;
-            fn get_random(&mut self, num_bytes: usize) -> tss_esapi::Result<Digest>;
+            fn policy_pcr(
+                &mut self,
+                policy_session: PolicySession,
+                pcr_policy_digest: Digest,
+                pcr_selection_list: PcrSelectionList
+            ) -> tss_esapi::Result<()>;
             fn startup(&mut self, startup_type: StartupType) -> tss_esapi::Result<()>;
             fn start_auth_session(
                 &mut self,
@@ -114,6 +126,12 @@ impl Context {
                 symmetric: SymmetricDefinition,
                 auth_hash: HashingAlgorithm
             ) -> tss_esapi::Result<Option<AuthSession>>;
+            fn tr_sess_set_attributes(
+                &mut self,
+                session: AuthSession,
+                attributes: SessionAttributes,
+                mask: SessionAttributesMask
+            ) -> tss_esapi::Result<()>;
         }
     }
     pub fn new() -> Self {
@@ -167,8 +185,10 @@ impl Context {
             .with_decrypt(true)
             .with_encrypt(true)
             .build();
+        self.tr_sess_set_attributes(session, session_attributes, session_attributes_mask);
 
-        let random_digest = self.get_random(16).expect("Call to get_random failed");
+        let random_digest = self
+            .execute_without_session(|ctx| ctx.get_random(16).expect("Call to get_random failed"));
         let key_auth =
             Auth::try_from(random_digest.value().to_vec()).expect("Failed to create Auth");
 
@@ -195,20 +215,28 @@ impl Context {
         Ok(self.0.get_tpm_property(PropertyTag::Revision)?)
     }
 
-    /// Returns the digest for a PCR selection list only if it could be computed as a single
-    /// value.
+    /// Returns the digest for a PCR selection list
     fn pcr_digest(&mut self, pcr_selection_list: &PcrSelectionList) -> Result<Digest> {
         let (_update_counter, _selection_list, digest_list) =
-            self.0.pcr_read(pcr_selection_list.clone())?;
+            self.execute_without_session(|ctx| ctx.pcr_read(pcr_selection_list.clone()))?;
 
-        if digest_list.len() > 1 {
-            return Err(TpmError::PcrDigestLength);
-        }
-        digest_list
+        let concatenated_pcr_digests = digest_list
             .value()
-            .get(0)
-            .ok_or(TpmError::PcrDigestLength)
-            .map(|digest| digest.clone())
+            .iter()
+            .map(|x| x.value())
+            .collect::<Vec<&[u8]>>()
+            .concat();
+        let concatenated_pcr_digests = MaxBuffer::try_from(concatenated_pcr_digests)?;
+
+        let (digest, _ticket) = self.execute_without_session(|ctx| {
+            ctx.hash(
+                concatenated_pcr_digests,
+                HashingAlgorithm::Sha256,
+                Hierarchy::Owner,
+            )
+        })?;
+
+        Ok(digest)
     }
 
     pub fn seal(&mut self, data: SensitiveData) -> Result<()> {
@@ -329,7 +357,7 @@ impl Drop for Context {
 
 pub struct PcrPolicyOptions {
     digest: Option<Digest>,
-    pcr_list: PcrSelectionList,
+    pcr_selection_list: PcrSelectionList,
 }
 
 impl PcrPolicyOptions {
@@ -342,25 +370,50 @@ impl PcrPolicyOptions {
 impl Default for PcrPolicyOptions {
     fn default() -> Self {
         use tss_esapi::structures::pcr_slot::PcrSlot;
-        let pcr_list = PcrSelectionList::builder()
+        let pcr_selection_list = PcrSelectionList::builder()
             //.with_selection(HashingAlgorithm::Sha256, &[PcrSlot::Slot0])
             .with_selection(HashingAlgorithm::Sha256, &[PcrSlot::Slot7])
             .build()
             .unwrap();
         Self {
             digest: None,
-            pcr_list,
+            pcr_selection_list,
         }
     }
 }
 
 impl OwnedContext {
+    delegate! {
+        to self.ctx {
+            fn pcr_digest(&mut self, pcr_selection_list: &PcrSelectionList) -> Result<Digest>;
+            fn policy_pcr(
+                &mut self,
+                policy_session: PolicySession,
+                pcr_policy_digest: Digest,
+                pcr_selection_list: PcrSelectionList
+            ) -> tss_esapi::Result<()>;
+            fn start_auth_session(
+                &mut self,
+                tpm_key: Option<KeyHandle>,
+                bind: Option<ObjectHandle>,
+                nonce: Option<Nonce>,
+                session_type: SessionType,
+                symmetric: SymmetricDefinition,
+                auth_hash: HashingAlgorithm
+            ) -> tss_esapi::Result<Option<AuthSession>>;
+            fn tr_sess_set_attributes(
+                &mut self,
+                session: AuthSession,
+                attributes: SessionAttributes,
+                mask: SessionAttributesMask
+            ) -> tss_esapi::Result<()>;
+        }
+    }
     pub fn seal(&mut self, data: SensitiveData) -> Result<()> {
         Ok(())
     }
     pub fn policy(mut self, options: PcrPolicyOptions) -> Result<PcrPolicyContext> {
-        let policy_session = self
-            .ctx
+        let policy_session: PolicySession = self
             .start_auth_session(
                 None,
                 None,
@@ -371,6 +424,29 @@ impl OwnedContext {
             )?
             .expect("Received invalid handle")
             .try_into()?;
+
+        let (session_attributes, session_attributes_mask) = SessionAttributes::builder()
+            .with_decrypt(true)
+            .with_encrypt(true)
+            .build();
+        self.tr_sess_set_attributes(
+            AuthSession::PolicySession(policy_session),
+            session_attributes,
+            session_attributes_mask,
+        );
+
+        let PcrPolicyOptions {
+            mut digest,
+            pcr_selection_list,
+        } = options;
+
+        let digest = match digest {
+            Some(digest) => digest,
+            None => self.pcr_digest(&pcr_selection_list)?,
+        };
+
+        self.policy_pcr(policy_session, digest, pcr_selection_list)?;
+
         Ok(PcrPolicyContext {
             ctx: self,
             policy_session,
