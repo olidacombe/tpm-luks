@@ -10,13 +10,21 @@
 //! make dev
 //! ```
 
+use delegate::delegate;
 use once_cell::sync::Lazy;
 use std::sync::{Mutex, MutexGuard};
 use thiserror::Error;
+use tss_esapi::constants::SessionType;
+use tss_esapi::constants::StartupType;
 use tss_esapi::handles::KeyHandle;
+use tss_esapi::handles::ObjectHandle;
+use tss_esapi::interface_types::algorithm::HashingAlgorithm;
+use tss_esapi::interface_types::resource_handles::Hierarchy;
 use tss_esapi::interface_types::session_handles::AuthSession;
+use tss_esapi::structures::Nonce;
+use tss_esapi::structures::SymmetricDefinition;
 use tss_esapi::structures::{
-    CreatePrimaryKeyResult, Digest, PcrSelectionList, Public, SensitiveData,
+    Auth, CreatePrimaryKeyResult, Data, Digest, PcrSelectionList, Public, SensitiveData,
 };
 
 #[derive(Error, Debug)]
@@ -31,7 +39,7 @@ pub type Result<T, E = TpmError> = core::result::Result<T, E>;
 
 pub struct Context(MutexGuard<'static, tss_esapi::Context>);
 pub struct OwnedContext {
-    ctx: MutexGuard<'static, tss_esapi::Context>,
+    ctx: Context,
     key: KeyHandle,
     public: Public,
     hmac_session: AuthSession,
@@ -67,8 +75,42 @@ fn pubkey() -> Result<Public> {
 }
 
 impl Context {
+    delegate! {
+                to self.0 {
+                    fn clear_sessions(&mut self);
+                    fn create_primary(
+        &mut self,
+        primary_handle: Hierarchy,
+        public: Public,
+        auth_value: Option<Auth>,
+        initial_data: Option<SensitiveData>,
+        outside_info: Option<Data>,
+        creation_pcrs: Option<PcrSelectionList>
+    ) -> tss_esapi::Result<CreatePrimaryKeyResult>;
+                    fn start_auth_session(
+                        &mut self,
+                        tpm_key: Option<KeyHandle>,
+                        bind: Option<ObjectHandle>,
+                        nonce: Option<Nonce>,
+                        session_type: SessionType,
+                        symmetric: SymmetricDefinition,
+                        auth_hash: HashingAlgorithm
+                    ) -> tss_esapi::Result<Option<AuthSession>>;
+                    fn get_random(&mut self, num_bytes: usize) -> tss_esapi::Result<Digest>;
+                    fn execute_with_session<F, T>(
+            &mut self,
+            session_handle: Option<AuthSession>,
+            f: F
+        ) -> T
+        where
+            F: FnOnce(&mut tss_esapi::Context) -> T;
+                    fn startup(&mut self, startup_type: StartupType) -> tss_esapi::Result<()>;
+                }
+            }
     pub fn new() -> Self {
-        Self(CONTEXT.lock().unwrap())
+        let mut context = CONTEXT.lock().unwrap();
+        context.clear_sessions();
+        Self(context)
     }
 
     pub fn own(mut self) -> Result<OwnedContext> {
@@ -88,12 +130,10 @@ impl Context {
         use tss_esapi::structures::{Auth, SymmetricDefinition};
         use tss_esapi::utils::create_unrestricted_signing_rsa_public;
 
-        let mut ctx = self.0;
+        self.startup(StartupType::Clear)?;
+        self.clear_sessions();
 
-        ctx.startup(StartupType::Clear)?;
-        ctx.clear_sessions();
-
-        let session = ctx
+        let session = self
             .start_auth_session(
                 None,
                 None,
@@ -119,7 +159,7 @@ impl Context {
             .with_encrypt(true)
             .build();
 
-        let random_digest = ctx.get_random(16).expect("Call to get_random failed");
+        let random_digest = self.get_random(16).expect("Call to get_random failed");
         let key_auth =
             Auth::try_from(random_digest.value().to_vec()).expect("Failed to create Auth");
 
@@ -127,13 +167,13 @@ impl Context {
             key_handle: key,
             out_public: public,
             ..
-        } = ctx.execute_with_session(Some(session), |ctx| {
+        } = self.execute_with_session(Some(session), |ctx| {
             ctx.create_primary(Hierarchy::Owner, public_area, None, None, None, None)
                 .expect("Failed to create primary")
         });
 
         Ok(OwnedContext {
-            ctx,
+            ctx: self,
             key,
             public,
             hmac_session: session,
@@ -276,6 +316,24 @@ impl Default for Context {
     }
 }
 
+impl Drop for Context {
+    fn drop(&mut self) {
+        self.0.clear_sessions();
+    }
+}
+
+//impl Drop for OwnedContext {
+//fn drop(&mut self) {
+//self.ctx.clear_sessions();
+//}
+//}
+
+impl OwnedContext {
+    pub fn seal(&mut self, data: SensitiveData) -> Result<()> {
+        Ok(())
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -296,7 +354,7 @@ mod tests {
         let data = SensitiveData::try_from("Hello".as_bytes().to_vec())
             .expect("Failed to create dummy sensitive buffer");
 
-        let mut context = Context::new().own()?;
+        let context = Context::new().own()?.seal(data);
 
         Ok(())
     }
