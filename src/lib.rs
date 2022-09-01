@@ -20,7 +20,8 @@ use tss_esapi::handles::KeyHandle;
 use tss_esapi::handles::ObjectHandle;
 use tss_esapi::interface_types::algorithm::HashingAlgorithm;
 use tss_esapi::interface_types::resource_handles::Hierarchy;
-use tss_esapi::interface_types::session_handles::AuthSession;
+use tss_esapi::interface_types::session_handles::{AuthSession, HmacSession, PolicySession};
+use tss_esapi::structures::DigestList;
 use tss_esapi::structures::Nonce;
 use tss_esapi::structures::SymmetricDefinition;
 use tss_esapi::structures::{
@@ -42,7 +43,11 @@ pub struct OwnedContext {
     ctx: Context,
     key: KeyHandle,
     public: Public,
-    hmac_session: AuthSession,
+    hmac_session: HmacSession,
+}
+pub struct PcrPolicyContext {
+    ctx: OwnedContext,
+    policy_session: PolicySession,
 }
 
 static CONTEXT: Lazy<Mutex<tss_esapi::Context>> = Lazy::new(|| {
@@ -76,37 +81,41 @@ fn pubkey() -> Result<Public> {
 
 impl Context {
     delegate! {
-                to self.0 {
-                    fn clear_sessions(&mut self);
-                    fn create_primary(
-        &mut self,
-        primary_handle: Hierarchy,
-        public: Public,
-        auth_value: Option<Auth>,
-        initial_data: Option<SensitiveData>,
-        outside_info: Option<Data>,
-        creation_pcrs: Option<PcrSelectionList>
-    ) -> tss_esapi::Result<CreatePrimaryKeyResult>;
-                    fn start_auth_session(
-                        &mut self,
-                        tpm_key: Option<KeyHandle>,
-                        bind: Option<ObjectHandle>,
-                        nonce: Option<Nonce>,
-                        session_type: SessionType,
-                        symmetric: SymmetricDefinition,
-                        auth_hash: HashingAlgorithm
-                    ) -> tss_esapi::Result<Option<AuthSession>>;
-                    fn get_random(&mut self, num_bytes: usize) -> tss_esapi::Result<Digest>;
-                    fn execute_with_session<F, T>(
-            &mut self,
-            session_handle: Option<AuthSession>,
-            f: F
-        ) -> T
-        where
-            F: FnOnce(&mut tss_esapi::Context) -> T;
-                    fn startup(&mut self, startup_type: StartupType) -> tss_esapi::Result<()>;
-                }
-            }
+        to self.0 {
+            fn clear_sessions(&mut self);
+            fn create_primary(
+                &mut self,
+                primary_handle: Hierarchy,
+                public: Public,
+                auth_value: Option<Auth>,
+                initial_data: Option<SensitiveData>,
+                outside_info: Option<Data>,
+                creation_pcrs: Option<PcrSelectionList>
+            ) -> tss_esapi::Result<CreatePrimaryKeyResult>;
+            fn execute_with_session<F, T>(
+                &mut self,
+                session_handle: Option<AuthSession>,
+                f: F
+            ) -> T
+            where
+                F: FnOnce(&mut tss_esapi::Context) -> T;
+            fn pcr_read(
+                &mut self,
+                pcr_selection_list: PcrSelectionList
+            ) -> tss_esapi::Result<(u32, PcrSelectionList, DigestList)>;
+            fn get_random(&mut self, num_bytes: usize) -> tss_esapi::Result<Digest>;
+            fn startup(&mut self, startup_type: StartupType) -> tss_esapi::Result<()>;
+            fn start_auth_session(
+                &mut self,
+                tpm_key: Option<KeyHandle>,
+                bind: Option<ObjectHandle>,
+                nonce: Option<Nonce>,
+                session_type: SessionType,
+                symmetric: SymmetricDefinition,
+                auth_hash: HashingAlgorithm
+            ) -> tss_esapi::Result<Option<AuthSession>>;
+        }
+    }
     pub fn new() -> Self {
         let mut context = CONTEXT.lock().unwrap();
         context.clear_sessions();
@@ -176,7 +185,7 @@ impl Context {
             ctx: self,
             key,
             public,
-            hmac_session: session,
+            hmac_session: session.try_into()?,
         })
     }
 
@@ -212,7 +221,6 @@ impl Context {
             algorithm::HashingAlgorithm, resource_handles::Hierarchy,
             session_handles::PolicySession,
         };
-        use tss_esapi::structures::pcr_selection_list::PcrSelectionList;
         use tss_esapi::structures::pcr_slot::PcrSlot;
         use tss_esapi::structures::RsaExponent;
         use tss_esapi::structures::RsaScheme;
@@ -221,7 +229,7 @@ impl Context {
 
         // TODO expose seal method only on a type which is retrieved
         // only by clearing - all that kind of good stuff
-        self.0.startup(StartupType::Clear).unwrap();
+        self.startup(StartupType::Clear).unwrap();
 
         //let public = pubkey()?;
         // Create public area for a rsa key
@@ -245,7 +253,6 @@ impl Context {
             .build();
         // todo authed type that flushes on destruct?
         let hmac_session = self
-            .0
             .start_auth_session(
                 None,
                 None,
@@ -256,7 +263,6 @@ impl Context {
             )?
             .expect("Received invalid handle");
         let policy_session = self
-            .0
             .start_auth_session(
                 None,
                 None,
@@ -274,37 +280,36 @@ impl Context {
         //self.0
         //.policy_pcr(session.try_into()?, digest, selections.clone())?;
 
-        let random_digest = self.0.get_random(16).expect("Call to get_random failed");
+        let random_digest = self.get_random(16).expect("Call to get_random failed");
         let key_auth =
             Auth::try_from(random_digest.value().to_vec()).expect("Failed to create Auth");
 
-        self.0
-            .execute_with_sessions((Some(hmac_session), Some(policy_session), None), |ctx| {
-                // TODO wrap in OwnedContext type which can only be created from a Context.take_ownership method!!!
-                let primary = ctx
-                    .create_primary(
-                        Hierarchy::Owner,
-                        public_area,
-                        /*Some(key_auth),*/ None,
-                        None,
-                        None,
-                        None,
-                    )
-                    .expect("Failed to create primary");
-                // end TODO
-                //ctx.create(
-                //primary.key_handle,
-                //primary.out_public,
-                //None,
-                //Some(data),
-                //None,
-                //Some(selections.clone()),
-                //)
-                //.expect("Failed to seal data");
-            });
+        self.execute_with_session(Some(hmac_session), |ctx| {
+            // TODO wrap in OwnedContext type which can only be created from a Context.take_ownership method!!!
+            let primary = ctx
+                .create_primary(
+                    Hierarchy::Owner,
+                    public_area,
+                    /*Some(key_auth),*/ None,
+                    None,
+                    None,
+                    None,
+                )
+                .expect("Failed to create primary");
+            // end TODO
+            //ctx.create(
+            //primary.key_handle,
+            //primary.out_public,
+            //None,
+            //Some(data),
+            //None,
+            //Some(selections.clone()),
+            //)
+            //.expect("Failed to seal data");
+        });
 
         // TODO some kind of unconditional `finally` behavior
-        self.0.clear_sessions();
+        self.clear_sessions();
 
         Ok(())
     }
@@ -322,15 +327,54 @@ impl Drop for Context {
     }
 }
 
-//impl Drop for OwnedContext {
-//fn drop(&mut self) {
-//self.ctx.clear_sessions();
-//}
-//}
+pub struct PcrPolicyOptions {
+    digest: Option<Digest>,
+    pcr_list: PcrSelectionList,
+}
+
+impl PcrPolicyOptions {
+    pub fn with_digest(mut self, digest: Digest) -> Self {
+        self.digest = Some(digest);
+        self
+    }
+}
+
+impl Default for PcrPolicyOptions {
+    fn default() -> Self {
+        use tss_esapi::structures::pcr_slot::PcrSlot;
+        let pcr_list = PcrSelectionList::builder()
+            //.with_selection(HashingAlgorithm::Sha256, &[PcrSlot::Slot0])
+            .with_selection(HashingAlgorithm::Sha256, &[PcrSlot::Slot7])
+            .build()
+            .unwrap();
+        Self {
+            digest: None,
+            pcr_list,
+        }
+    }
+}
 
 impl OwnedContext {
     pub fn seal(&mut self, data: SensitiveData) -> Result<()> {
         Ok(())
+    }
+    pub fn policy(mut self, options: PcrPolicyOptions) -> Result<PcrPolicyContext> {
+        let policy_session = self
+            .ctx
+            .start_auth_session(
+                None,
+                None,
+                None,
+                SessionType::Policy,
+                SymmetricDefinition::AES_256_CFB,
+                HashingAlgorithm::Sha256,
+            )?
+            .expect("Received invalid handle")
+            .try_into()?;
+        Ok(PcrPolicyContext {
+            ctx: self,
+            policy_session,
+        })
     }
 }
 
@@ -354,7 +398,7 @@ mod tests {
         let data = SensitiveData::try_from("Hello".as_bytes().to_vec())
             .expect("Failed to create dummy sensitive buffer");
 
-        let context = Context::new().own()?.seal(data);
+        let context = Context::new().own()?.policy(PcrPolicyOptions::default())?;
 
         Ok(())
     }
