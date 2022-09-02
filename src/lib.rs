@@ -14,22 +14,23 @@ use delegate::delegate;
 use once_cell::sync::Lazy;
 use std::sync::{Mutex, MutexGuard};
 use thiserror::Error;
-use tss_esapi::attributes::SessionAttributes;
-use tss_esapi::attributes::SessionAttributesMask;
-use tss_esapi::constants::SessionType;
-use tss_esapi::constants::StartupType;
-use tss_esapi::handles::KeyHandle;
-use tss_esapi::handles::ObjectHandle;
-use tss_esapi::interface_types::algorithm::HashingAlgorithm;
+use tss_esapi::attributes::{
+    ObjectAttributesBuilder, SessionAttributes, SessionAttributesBuilder, SessionAttributesMask,
+};
+use tss_esapi::constants::{SessionType, StartupType};
+use tss_esapi::handles::{KeyHandle, ObjectHandle};
+use tss_esapi::interface_types::algorithm::{
+    HashingAlgorithm, PublicAlgorithm, RsaSchemeAlgorithm,
+};
+use tss_esapi::interface_types::key_bits::RsaKeyBits;
 use tss_esapi::interface_types::resource_handles::Hierarchy;
 use tss_esapi::interface_types::session_handles::{AuthSession, HmacSession, PolicySession};
-use tss_esapi::structures::DigestList;
-use tss_esapi::structures::MaxBuffer;
-use tss_esapi::structures::Nonce;
-use tss_esapi::structures::SymmetricDefinition;
 use tss_esapi::structures::{
-    Auth, CreatePrimaryKeyResult, Data, Digest, PcrSelectionList, Public, SensitiveData,
+    Auth, CreatePrimaryKeyResult, Data, Digest, DigestList, KeyedHashScheme, MaxBuffer, Nonce,
+    PcrSelectionList, Public, PublicBuilder, PublicKeyedHashParameters, RsaExponent, RsaScheme,
+    SensitiveData, SymmetricDefinition,
 };
+use tss_esapi::utils::create_unrestricted_signing_rsa_public;
 
 #[derive(Error, Debug)]
 pub enum TpmError {
@@ -62,10 +63,6 @@ static CONTEXT: Lazy<Mutex<tss_esapi::Context>> = Lazy::new(|| {
 });
 
 fn pubkey() -> Result<Public> {
-    use tss_esapi::attributes::ObjectAttributesBuilder;
-    use tss_esapi::interface_types::algorithm::{HashingAlgorithm, PublicAlgorithm};
-    use tss_esapi::structures::{KeyedHashScheme, PublicBuilder, PublicKeyedHashParameters};
-
     let object_attributes = ObjectAttributesBuilder::new()
         .with_sign_encrypt(true)
         .with_sensitive_data_origin(true)
@@ -141,22 +138,6 @@ impl Context {
     }
 
     pub fn own(mut self) -> Result<OwnedContext> {
-        use tss_esapi::attributes::SessionAttributesBuilder;
-        use tss_esapi::constants::{SessionType, StartupType};
-        use tss_esapi::handles::KeyHandle;
-        use tss_esapi::interface_types::algorithm::RsaSchemeAlgorithm;
-        use tss_esapi::interface_types::key_bits::RsaKeyBits;
-        use tss_esapi::interface_types::{
-            algorithm::HashingAlgorithm, resource_handles::Hierarchy,
-            session_handles::PolicySession,
-        };
-        use tss_esapi::structures::pcr_selection_list::PcrSelectionList;
-        use tss_esapi::structures::pcr_slot::PcrSlot;
-        use tss_esapi::structures::RsaExponent;
-        use tss_esapi::structures::RsaScheme;
-        use tss_esapi::structures::{Auth, SymmetricDefinition};
-        use tss_esapi::utils::create_unrestricted_signing_rsa_public;
-
         self.startup(StartupType::Clear)?;
         self.clear_sessions();
 
@@ -185,12 +166,7 @@ impl Context {
             .with_decrypt(true)
             .with_encrypt(true)
             .build();
-        self.tr_sess_set_attributes(session, session_attributes, session_attributes_mask);
-
-        let random_digest = self
-            .execute_without_session(|ctx| ctx.get_random(16).expect("Call to get_random failed"));
-        let key_auth =
-            Auth::try_from(random_digest.value().to_vec()).expect("Failed to create Auth");
+        self.tr_sess_set_attributes(session, session_attributes, session_attributes_mask)?;
 
         let CreatePrimaryKeyResult {
             key_handle: key,
@@ -237,109 +213,6 @@ impl Context {
         })?;
 
         Ok(digest)
-    }
-
-    pub fn seal(&mut self, data: SensitiveData) -> Result<()> {
-        use tss_esapi::attributes::SessionAttributesBuilder;
-        use tss_esapi::constants::{SessionType, StartupType};
-        use tss_esapi::handles::KeyHandle;
-        use tss_esapi::interface_types::algorithm::RsaSchemeAlgorithm;
-        use tss_esapi::interface_types::key_bits::RsaKeyBits;
-        use tss_esapi::interface_types::{
-            algorithm::HashingAlgorithm, resource_handles::Hierarchy,
-            session_handles::PolicySession,
-        };
-        use tss_esapi::structures::pcr_slot::PcrSlot;
-        use tss_esapi::structures::RsaExponent;
-        use tss_esapi::structures::RsaScheme;
-        use tss_esapi::structures::{Auth, SymmetricDefinition};
-        use tss_esapi::utils::create_unrestricted_signing_rsa_public;
-
-        // TODO expose seal method only on a type which is retrieved
-        // only by clearing - all that kind of good stuff
-        self.startup(StartupType::Clear).unwrap();
-
-        //let public = pubkey()?;
-        // Create public area for a rsa key
-        let public_area = create_unrestricted_signing_rsa_public(
-            RsaScheme::create(RsaSchemeAlgorithm::RsaSsa, Some(HashingAlgorithm::Sha256))
-                .expect("Failed to create RSA scheme"),
-            RsaKeyBits::Rsa2048,
-            RsaExponent::default(),
-        )
-        .expect("Failed to create rsa public area");
-
-        let selections = PcrSelectionList::builder()
-            //.with_selection(HashingAlgorithm::Sha256, &[PcrSlot::Slot0])
-            .with_selection(HashingAlgorithm::Sha256, &[PcrSlot::Slot7])
-            .build()?;
-
-        let digest = self.pcr_digest(&selections)?;
-        let (session_attributes, session_attributes_mask) = SessionAttributesBuilder::new()
-            .with_decrypt(true)
-            .with_encrypt(true)
-            .build();
-        // todo authed type that flushes on destruct?
-        let hmac_session = self
-            .start_auth_session(
-                None,
-                None,
-                None,
-                SessionType::Hmac,
-                SymmetricDefinition::AES_256_CFB,
-                HashingAlgorithm::Sha256,
-            )?
-            .expect("Received invalid handle");
-        let policy_session = self
-            .start_auth_session(
-                None,
-                None,
-                None,
-                SessionType::Policy,
-                SymmetricDefinition::AES_256_CFB,
-                HashingAlgorithm::Sha256,
-            )?
-            .expect("Received invalid handle");
-        //.try_into()?;
-        //self.0
-        //.tr_sess_set_attributes(session, session_attributes, session_attributes_mask)
-        //.expect("Failed to set attributes on session");
-
-        //self.0
-        //.policy_pcr(session.try_into()?, digest, selections.clone())?;
-
-        let random_digest = self.get_random(16).expect("Call to get_random failed");
-        let key_auth =
-            Auth::try_from(random_digest.value().to_vec()).expect("Failed to create Auth");
-
-        self.execute_with_session(Some(hmac_session), |ctx| {
-            // TODO wrap in OwnedContext type which can only be created from a Context.take_ownership method!!!
-            let primary = ctx
-                .create_primary(
-                    Hierarchy::Owner,
-                    public_area,
-                    /*Some(key_auth),*/ None,
-                    None,
-                    None,
-                    None,
-                )
-                .expect("Failed to create primary");
-            // end TODO
-            //ctx.create(
-            //primary.key_handle,
-            //primary.out_public,
-            //None,
-            //Some(data),
-            //None,
-            //Some(selections.clone()),
-            //)
-            //.expect("Failed to seal data");
-        });
-
-        // TODO some kind of unconditional `finally` behavior
-        self.clear_sessions();
-
-        Ok(())
     }
 }
 
@@ -409,9 +282,6 @@ impl OwnedContext {
             ) -> tss_esapi::Result<()>;
         }
     }
-    pub fn seal(&mut self, data: SensitiveData) -> Result<()> {
-        Ok(())
-    }
     pub fn policy(mut self, options: PcrPolicyOptions) -> Result<PcrPolicyContext> {
         let policy_session: PolicySession = self
             .start_auth_session(
@@ -433,10 +303,10 @@ impl OwnedContext {
             AuthSession::PolicySession(policy_session),
             session_attributes,
             session_attributes_mask,
-        );
+        )?;
 
         let PcrPolicyOptions {
-            mut digest,
+            digest,
             pcr_selection_list,
         } = options;
 
@@ -471,10 +341,10 @@ mod tests {
     //https://tpm2-software.github.io/2020/04/13/Disk-Encryption.html#pcr-policy-authentication---access-control-of-sealed-pass-phrase-on-tpm2-with-pcr-sealing
     #[test]
     fn seal() -> Result<()> {
-        let data = SensitiveData::try_from("Hello".as_bytes().to_vec())
+        let _data = SensitiveData::try_from("Hello".as_bytes().to_vec())
             .expect("Failed to create dummy sensitive buffer");
 
-        let context = Context::new().own()?.policy(PcrPolicyOptions::default())?;
+        let _context = Context::new().own()?.policy(PcrPolicyOptions::default())?;
 
         Ok(())
     }
