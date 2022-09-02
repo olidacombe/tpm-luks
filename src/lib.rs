@@ -22,8 +22,8 @@ use tss_esapi::interface_types::key_bits::RsaKeyBits;
 use tss_esapi::interface_types::resource_handles::Hierarchy;
 use tss_esapi::interface_types::session_handles::{AuthSession, HmacSession, PolicySession};
 use tss_esapi::structures::{
-    CreatePrimaryKeyResult, Digest, MaxBuffer, Nonce, PcrSelectionList, Public, RsaExponent,
-    RsaScheme, SymmetricDefinition,
+    Auth, CreateKeyResult, CreatePrimaryKeyResult, Data, Digest, MaxBuffer, Nonce,
+    PcrSelectionList, Public, RsaExponent, RsaScheme, SensitiveData, SymmetricDefinition,
 };
 use tss_esapi::utils::create_unrestricted_signing_rsa_public;
 
@@ -47,6 +47,7 @@ pub struct OwnedContext {
 pub struct PcrPolicyContext {
     ctx: OwnedContext,
     policy_session: PolicySession,
+    pcr_selection_list: PcrSelectionList,
 }
 
 static CONTEXT: Lazy<Mutex<tss_esapi::Context>> = Lazy::new(|| {
@@ -222,6 +223,13 @@ impl Default for PcrPolicyOptions {
 impl OwnedContext {
     delegate! {
         to self.ctx {
+            fn execute_with_session<F, T>(
+                &mut self,
+                session_handle: Option<AuthSession>,
+                f: F
+            ) -> T
+            where
+                F: FnOnce(&mut tss_esapi::Context) -> T;
             fn pcr_digest(&mut self, pcr_selection_list: &PcrSelectionList) -> Result<Digest>;
             fn policy_pcr(
                 &mut self,
@@ -279,12 +287,47 @@ impl OwnedContext {
             None => self.pcr_digest(&pcr_selection_list)?,
         };
 
-        self.policy_pcr(policy_session, digest, pcr_selection_list)?;
+        self.policy_pcr(policy_session, digest, pcr_selection_list.clone())?;
+
+        // TODO flush_context?
 
         Ok(PcrPolicyContext {
             ctx: self,
             policy_session,
+            pcr_selection_list,
         })
+    }
+}
+
+impl PcrPolicyContext {
+    delegate! {
+        to self.ctx {
+            fn execute_with_session<F, T>(
+                &mut self,
+                session_handle: Option<AuthSession>,
+                f: F
+            ) -> T
+            where
+                F: FnOnce(&mut tss_esapi::Context) -> T;
+        }
+    }
+
+    pub fn seal(&mut self, data: SensitiveData) -> Result<()> {
+        let key = self.ctx.key;
+        let public = self.ctx.public.clone();
+        let pcrs = self.pcr_selection_list.clone();
+        self.execute_with_session(
+            Some(AuthSession::PolicySession(self.policy_session)),
+            |ctx| {
+                let CreateKeyResult {
+                    out_private: private,
+                    out_public: public,
+                    ..
+                } = ctx.create(key, public, None, Some(data), None, Some(pcrs))?;
+                ctx.load(key, private, public)
+            },
+        )?;
+        Ok(())
     }
 }
 
@@ -292,7 +335,6 @@ impl OwnedContext {
 mod tests {
     use super::*;
     use eyre::Result;
-    use tss_esapi::structures::SensitiveData;
 
     #[test]
     fn get_revision() -> Result<()> {
@@ -306,11 +348,13 @@ mod tests {
     //https://tpm2-software.github.io/2020/04/13/Disk-Encryption.html#pcr-policy-authentication---access-control-of-sealed-pass-phrase-on-tpm2-with-pcr-sealing
     #[test]
     fn seal() -> Result<()> {
-        let _data = SensitiveData::try_from("Hello".as_bytes().to_vec())
+        let data = SensitiveData::try_from("Hello".as_bytes().to_vec())
             .expect("Failed to create dummy sensitive buffer");
 
-        let _context = Context::new().own()?.policy(PcrPolicyOptions::default())?;
-
+        let _context = Context::new()
+            .own()?
+            .policy(PcrPolicyOptions::default())?
+            .seal(data)?;
         Ok(())
     }
 }
