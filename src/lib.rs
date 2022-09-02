@@ -14,21 +14,16 @@ use delegate::delegate;
 use once_cell::sync::Lazy;
 use std::sync::{Mutex, MutexGuard};
 use thiserror::Error;
-use tss_esapi::attributes::{
-    ObjectAttributesBuilder, SessionAttributes, SessionAttributesBuilder, SessionAttributesMask,
-};
+use tss_esapi::attributes::{SessionAttributes, SessionAttributesBuilder, SessionAttributesMask};
 use tss_esapi::constants::{SessionType, StartupType};
 use tss_esapi::handles::{KeyHandle, ObjectHandle};
-use tss_esapi::interface_types::algorithm::{
-    HashingAlgorithm, PublicAlgorithm, RsaSchemeAlgorithm,
-};
+use tss_esapi::interface_types::algorithm::{HashingAlgorithm, RsaSchemeAlgorithm};
 use tss_esapi::interface_types::key_bits::RsaKeyBits;
 use tss_esapi::interface_types::resource_handles::Hierarchy;
 use tss_esapi::interface_types::session_handles::{AuthSession, HmacSession, PolicySession};
 use tss_esapi::structures::{
-    Auth, CreatePrimaryKeyResult, Data, Digest, DigestList, KeyedHashScheme, MaxBuffer, Nonce,
-    PcrSelectionList, Public, PublicBuilder, PublicKeyedHashParameters, RsaExponent, RsaScheme,
-    SensitiveData, SymmetricDefinition,
+    CreatePrimaryKeyResult, Digest, MaxBuffer, Nonce, PcrSelectionList, Public, RsaExponent,
+    RsaScheme, SymmetricDefinition,
 };
 use tss_esapi::utils::create_unrestricted_signing_rsa_public;
 
@@ -62,36 +57,10 @@ static CONTEXT: Lazy<Mutex<tss_esapi::Context>> = Lazy::new(|| {
     Mutex::new(context)
 });
 
-fn pubkey() -> Result<Public> {
-    let object_attributes = ObjectAttributesBuilder::new()
-        .with_sign_encrypt(true)
-        .with_sensitive_data_origin(true)
-        .with_user_with_auth(true)
-        .build()?;
-    Ok(PublicBuilder::new()
-        .with_public_algorithm(PublicAlgorithm::KeyedHash)
-        .with_name_hashing_algorithm(HashingAlgorithm::Sha256)
-        .with_object_attributes(object_attributes)
-        .with_keyed_hash_parameters(PublicKeyedHashParameters::new(
-            KeyedHashScheme::HMAC_SHA_256,
-        ))
-        .with_keyed_hash_unique_identifier(Digest::default())
-        .build()?)
-}
-
 impl Context {
     delegate! {
         to self.0 {
             fn clear_sessions(&mut self);
-            fn create_primary(
-                &mut self,
-                primary_handle: Hierarchy,
-                public: Public,
-                auth_value: Option<Auth>,
-                initial_data: Option<SensitiveData>,
-                outside_info: Option<Data>,
-                creation_pcrs: Option<PcrSelectionList>
-            ) -> tss_esapi::Result<CreatePrimaryKeyResult>;
             fn execute_without_session<F, T>(&mut self, f: F) -> T
             where
                 F: FnOnce(&mut tss_esapi::Context) -> T;
@@ -102,11 +71,6 @@ impl Context {
             ) -> T
             where
                 F: FnOnce(&mut tss_esapi::Context) -> T;
-            fn get_random(&mut self, num_bytes: usize) -> tss_esapi::Result<Digest>;
-            fn pcr_read(
-                &mut self,
-                pcr_selection_list: PcrSelectionList
-            ) -> tss_esapi::Result<(u32, PcrSelectionList, DigestList)>;
             fn policy_pcr(
                 &mut self,
                 policy_session: PolicySession,
@@ -328,6 +292,7 @@ impl OwnedContext {
 mod tests {
     use super::*;
     use eyre::Result;
+    use tss_esapi::structures::SensitiveData;
 
     #[test]
     fn get_revision() -> Result<()> {
