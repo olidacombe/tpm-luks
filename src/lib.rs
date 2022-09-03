@@ -29,8 +29,8 @@ use tss_esapi::utils::create_unrestricted_signing_rsa_public;
 
 #[derive(Error, Debug)]
 pub enum TpmError {
-    #[error("PCR digest length > 1")]
-    PcrDigestLength,
+    #[error("failed to create auth session")]
+    AuthSessionCreate,
     #[error(transparent)]
     TssEsapi(#[from] tss_esapi::Error),
 }
@@ -42,11 +42,9 @@ pub struct OwnedContext {
     ctx: Context,
     key: KeyHandle,
     public: Public,
-    hmac_session: HmacSession,
 }
-pub struct PcrPolicyContext {
+pub struct PcrSealedContexed {
     ctx: OwnedContext,
-    policy_session: PolicySession,
     pcr_selection_list: PcrSelectionList,
 }
 
@@ -55,6 +53,7 @@ static CONTEXT: Lazy<Mutex<tss_esapi::Context>> = Lazy::new(|| {
 
     let context =
         tss_esapi::Context::new(TctiNameConf::from_environment_variable().unwrap()).unwrap();
+    dbg!("NEW CONTEXT");
     Mutex::new(context)
 });
 
@@ -65,6 +64,10 @@ impl Context {
             fn execute_without_session<F, T>(&mut self, f: F) -> T
             where
                 F: FnOnce(&mut tss_esapi::Context) -> T;
+            fn execute_with_nullauth_session<F, T, E>(&mut self, f: F) -> Result<T, E>
+            where
+                F: FnOnce(&mut tss_esapi::Context) -> Result<T, E>,
+                E: From<tss_esapi::Error>;
             fn execute_with_session<F, T>(
                 &mut self,
                 session_handle: Option<AuthSession>,
@@ -104,49 +107,26 @@ impl Context {
 
     pub fn own(mut self) -> Result<OwnedContext> {
         self.startup(StartupType::Clear)?;
-        self.clear_sessions();
-
-        let session = self
-            .start_auth_session(
-                None,
-                None,
-                None,
-                SessionType::Hmac,
-                SymmetricDefinition::AES_256_CFB,
-                HashingAlgorithm::Sha256,
-            )?
-            .expect("Received invalid handle");
 
         // Create public area for a rsa key
         let public_area = create_unrestricted_signing_rsa_public(
-            RsaScheme::create(RsaSchemeAlgorithm::RsaSsa, Some(HashingAlgorithm::Sha256))
-                .expect("Failed to create RSA scheme"),
+            RsaScheme::create(RsaSchemeAlgorithm::RsaSsa, Some(HashingAlgorithm::Sha256))?,
             RsaKeyBits::Rsa2048,
             RsaExponent::default(),
-        )
-        .expect("Failed to create rsa public area");
-
-        // Configure session attributes
-        let (session_attributes, session_attributes_mask) = SessionAttributesBuilder::new()
-            .with_decrypt(true)
-            .with_encrypt(true)
-            .build();
-        self.tr_sess_set_attributes(session, session_attributes, session_attributes_mask)?;
+        )?;
 
         let CreatePrimaryKeyResult {
             key_handle: key,
             out_public: public,
             ..
-        } = self.execute_with_session(Some(session), |ctx| {
+        } = self.execute_with_nullauth_session(|ctx| {
             ctx.create_primary(Hierarchy::Owner, public_area, None, None, None, None)
-                .expect("Failed to create primary")
-        });
+        })?;
 
         Ok(OwnedContext {
             ctx: self,
             key,
             public,
-            hmac_session: session.try_into()?,
         })
     }
 
@@ -254,89 +234,89 @@ impl OwnedContext {
             ) -> tss_esapi::Result<()>;
         }
     }
-    pub fn policy(mut self, options: PcrPolicyOptions) -> Result<PcrPolicyContext> {
-        let policy_session: PolicySession = self
-            .start_auth_session(
-                None,
-                None,
-                None,
-                SessionType::Policy,
-                SymmetricDefinition::AES_256_CFB,
-                HashingAlgorithm::Sha256,
-            )?
-            .expect("Received invalid handle")
-            .try_into()?;
+    //pub fn policy(mut self, options: PcrPolicyOptions) -> Result<PcrPolicyContext> {
+    //let policy_session: PolicySession = self
+    //.start_auth_session(
+    //None,
+    //None,
+    //None,
+    //SessionType::Policy,
+    //SymmetricDefinition::AES_256_CFB,
+    //HashingAlgorithm::Sha256,
+    //)?
+    //.expect("Received invalid handle")
+    //.try_into()?;
 
-        let (session_attributes, session_attributes_mask) = SessionAttributes::builder()
-            .with_decrypt(true)
-            .with_encrypt(true)
-            .build();
-        self.tr_sess_set_attributes(
-            AuthSession::PolicySession(policy_session),
-            session_attributes,
-            session_attributes_mask,
-        )?;
+    //let (session_attributes, session_attributes_mask) = SessionAttributes::builder()
+    //.with_decrypt(true)
+    //.with_encrypt(true)
+    //.build();
+    //self.tr_sess_set_attributes(
+    //AuthSession::PolicySession(policy_session),
+    //session_attributes,
+    //session_attributes_mask,
+    //)?;
 
-        let PcrPolicyOptions {
-            digest,
-            pcr_selection_list,
-        } = options;
+    //let PcrPolicyOptions {
+    //digest,
+    //pcr_selection_list,
+    //} = options;
 
-        let digest = match digest {
-            Some(digest) => digest,
-            None => self.pcr_digest(&pcr_selection_list)?,
-        };
+    //let digest = match digest {
+    //Some(digest) => digest,
+    //None => self.pcr_digest(&pcr_selection_list)?,
+    //};
 
-        self.policy_pcr(policy_session, digest, pcr_selection_list.clone())?;
+    //self.policy_pcr(policy_session, digest, pcr_selection_list.clone())?;
 
-        // TODO flush_context?
+    ////TODO flush_context?
 
-        Ok(PcrPolicyContext {
-            ctx: self,
-            policy_session,
-            pcr_selection_list,
-        })
-    }
+    //Ok(PcrPolicyContext {
+    //ctx: self,
+    //policy_session,
+    //pcr_selection_list,
+    //})
+    //}
 }
 
-impl PcrPolicyContext {
-    delegate! {
-        to self.ctx {
-            fn execute_with_session<F, T>(
-                &mut self,
-                session_handle: Option<AuthSession>,
-                f: F
-            ) -> T
-            where
-                F: FnOnce(&mut tss_esapi::Context) -> T;
-        }
-    }
+//impl PcrPolicyContext {
+//delegate! {
+//to self.ctx {
+//fn execute_with_session<F, T>(
+//&mut self,
+//session_handle: Option<AuthSession>,
+//f: F
+//) -> T
+//where
+//F: FnOnce(&mut tss_esapi::Context) -> T;
+//}
+//}
 
-    pub fn seal(&mut self, data: SensitiveData) -> Result<()> {
-        let key = self.ctx.key;
-        let public = self.ctx.public.clone();
-        let pcrs = self.pcr_selection_list.clone();
-        self.execute_with_session(
-            Some(AuthSession::PolicySession(self.policy_session)),
-            |ctx| {
-                let CreateKeyResult {
-                    out_private: private,
-                    out_public: public,
-                    ..
-                } = ctx.create(key, public, None, Some(data), None, Some(pcrs))?;
-                ctx.load(key, private, public)
-            },
-        )?;
-        Ok(())
-    }
-}
+//pub fn seal(&mut self, data: SensitiveData) -> Result<()> {
+//let key = self.ctx.key;
+//let public = self.ctx.public.clone();
+//let pcrs = self.pcr_selection_list.clone();
+//self.execute_with_session(
+//Some(AuthSession::PolicySession(self.policy_session)),
+//|ctx| {
+//let CreateKeyResult {
+//out_private: private,
+//out_public: public,
+//..
+//} = ctx.create(key, public, None, Some(data), None, Some(pcrs))?;
+//ctx.load(key, private, public)
+//},
+//)?;
+//Ok(())
+//}
+//}
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use eyre::Result;
 
-    #[test]
+    //#[test]
     fn get_revision() -> Result<()> {
         let mut context = Context::new();
         let revision = context.revision()?;
@@ -351,10 +331,8 @@ mod tests {
         let data = SensitiveData::try_from("Hello".as_bytes().to_vec())
             .expect("Failed to create dummy sensitive buffer");
 
-        let _context = Context::new()
-            .own()?
-            .policy(PcrPolicyOptions::default())?
-            .seal(data)?;
+        let _context = Context::new().own()?; //.policy(PcrPolicyOptions::default())?;
+                                              //.seal(data)?;
         Ok(())
     }
 }

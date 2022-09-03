@@ -13,6 +13,7 @@ swtpm-image: ## build software tpm docker image for testing against
 swtpm: swtpm-image ## run software tpm service for test interaction
 	-docker kill swtpm
 	docker run -d --rm --name swtpm -p 2321:2321 -p 2322:2322 olidacombe/swtpm
+	sleep 2
 
 ci-image: ## build docker image with necessary dependencies to run CI tasks
 	docker build -t olidacombe/tpm-luks-ci -f Dockerfile-ci .
