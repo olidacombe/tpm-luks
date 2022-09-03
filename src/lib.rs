@@ -43,7 +43,7 @@ pub struct OwnedContext {
     key: KeyHandle,
     public: Public,
 }
-pub struct PcrSealedContexed {
+pub struct PcrSealedContext {
     ctx: OwnedContext,
     pcr_selection_list: PcrSelectionList,
 }
@@ -75,6 +75,7 @@ impl Context {
             ) -> T
             where
                 F: FnOnce(&mut tss_esapi::Context) -> T;
+            fn flush_context(&mut self, handle: ObjectHandle) -> tss_esapi::Result<()>;
             fn policy_pcr(
                 &mut self,
                 policy_session: PolicySession,
@@ -210,6 +211,7 @@ impl OwnedContext {
             ) -> T
             where
                 F: FnOnce(&mut tss_esapi::Context) -> T;
+            fn flush_context(&mut self, handle: ObjectHandle) -> tss_esapi::Result<()>;
             fn pcr_digest(&mut self, pcr_selection_list: &PcrSelectionList) -> Result<Digest>;
             fn policy_pcr(
                 &mut self,
@@ -234,49 +236,62 @@ impl OwnedContext {
             ) -> tss_esapi::Result<()>;
         }
     }
-    //pub fn policy(mut self, options: PcrPolicyOptions) -> Result<PcrPolicyContext> {
-    //let policy_session: PolicySession = self
-    //.start_auth_session(
-    //None,
-    //None,
-    //None,
-    //SessionType::Policy,
-    //SymmetricDefinition::AES_256_CFB,
-    //HashingAlgorithm::Sha256,
-    //)?
-    //.expect("Received invalid handle")
-    //.try_into()?;
+    fn flush_session(&mut self, session: AuthSession) -> Result<()> {
+        let handle = match session {
+            AuthSession::HmacSession(session) => match session {
+                HmacSession::HmacSession { session_handle, .. } => Some(session_handle.into()),
+                _ => None,
+            },
+            AuthSession::PolicySession(session) => match session {
+                PolicySession::PolicySession { session_handle, .. } => Some(session_handle.into()),
+                _ => None,
+            },
+            _ => None,
+        };
+        if let Some(handle) = handle {
+            self.flush_context(handle)?;
+        }
+        Ok(())
+    }
+    pub fn with_pcr_policy(mut self, options: PcrPolicyOptions) -> Result<PcrSealedContext> {
+        let session = self
+            .start_auth_session(
+                None,
+                None,
+                None,
+                SessionType::Trial,
+                SymmetricDefinition::AES_256_CFB,
+                HashingAlgorithm::Sha256,
+            )?
+            .ok_or(TpmError::AuthSessionCreate)?;
 
-    //let (session_attributes, session_attributes_mask) = SessionAttributes::builder()
-    //.with_decrypt(true)
-    //.with_encrypt(true)
-    //.build();
-    //self.tr_sess_set_attributes(
-    //AuthSession::PolicySession(policy_session),
-    //session_attributes,
-    //session_attributes_mask,
-    //)?;
+        let (session_attributes, session_attributes_mask) = SessionAttributes::builder()
+            .with_decrypt(true)
+            .with_encrypt(true)
+            .build();
+        self.tr_sess_set_attributes(session, session_attributes, session_attributes_mask)?;
 
-    //let PcrPolicyOptions {
-    //digest,
-    //pcr_selection_list,
-    //} = options;
+        let PcrPolicyOptions {
+            digest,
+            pcr_selection_list,
+        } = options;
 
-    //let digest = match digest {
-    //Some(digest) => digest,
-    //None => self.pcr_digest(&pcr_selection_list)?,
-    //};
+        let digest = match digest {
+            Some(digest) => digest,
+            None => self.pcr_digest(&pcr_selection_list)?,
+        };
 
-    //self.policy_pcr(policy_session, digest, pcr_selection_list.clone())?;
+        self.policy_pcr(session.try_into()?, digest, pcr_selection_list.clone())?;
 
-    ////TODO flush_context?
+        self.flush_session(session)?;
 
-    //Ok(PcrPolicyContext {
-    //ctx: self,
-    //policy_session,
-    //pcr_selection_list,
-    //})
-    //}
+        //TODO flush_context?
+
+        Ok(PcrSealedContext {
+            ctx: self,
+            pcr_selection_list,
+        })
+    }
 }
 
 //impl PcrPolicyContext {
