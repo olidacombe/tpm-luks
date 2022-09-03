@@ -204,11 +204,18 @@ impl Default for PcrPolicyOptions {
 impl OwnedContext {
     delegate! {
         to self.ctx {
+            fn execute_with_nullauth_session<F, T, E>(&mut self, f: F) -> Result<T, E>
+            where
+                F: FnOnce(&mut tss_esapi::Context) -> Result<T, E>,
+                E: From<tss_esapi::Error>;
             fn execute_with_session<F, T>(
                 &mut self,
                 session_handle: Option<AuthSession>,
                 f: F
             ) -> T
+            where
+                F: FnOnce(&mut tss_esapi::Context) -> T;
+            fn execute_without_session<F, T>(&mut self, f: F) -> T
             where
                 F: FnOnce(&mut tss_esapi::Context) -> T;
             fn flush_context(&mut self, handle: ObjectHandle) -> tss_esapi::Result<()>;
@@ -292,37 +299,42 @@ impl OwnedContext {
     }
 }
 
-//impl PcrPolicyContext {
-//delegate! {
-//to self.ctx {
-//fn execute_with_session<F, T>(
-//&mut self,
-//session_handle: Option<AuthSession>,
-//f: F
-//) -> T
-//where
-//F: FnOnce(&mut tss_esapi::Context) -> T;
-//}
-//}
+impl PcrSealedContext {
+    delegate! {
+        to self.ctx {
+            fn execute_with_nullauth_session<F, T, E>(&mut self, f: F) -> Result<T, E>
+            where
+                F: FnOnce(&mut tss_esapi::Context) -> Result<T, E>,
+                E: From<tss_esapi::Error>;
+            fn execute_with_session<F, T>(
+                &mut self,
+                session_handle: Option<AuthSession>,
+                f: F
+            ) -> T
+            where
+            F: FnOnce(&mut tss_esapi::Context) -> T;
+            fn execute_without_session<F, T>(&mut self, f: F) -> T
+            where
+                F: FnOnce(&mut tss_esapi::Context) -> T;
+        }
+    }
 
-//pub fn seal(&mut self, data: SensitiveData) -> Result<()> {
-//let key = self.ctx.key;
-//let public = self.ctx.public.clone();
-//let pcrs = self.pcr_selection_list.clone();
-//self.execute_with_session(
-//Some(AuthSession::PolicySession(self.policy_session)),
-//|ctx| {
-//let CreateKeyResult {
-//out_private: private,
-//out_public: public,
-//..
-//} = ctx.create(key, public, None, Some(data), None, Some(pcrs))?;
-//ctx.load(key, private, public)
-//},
-//)?;
-//Ok(())
-//}
-//}
+    pub fn seal(&mut self, data: SensitiveData) -> Result<()> {
+        let key = self.ctx.key;
+        let public = self.ctx.public.clone();
+        let pcrs = self.pcr_selection_list.clone();
+        self.execute_with_nullauth_session(|ctx| {
+            let CreateKeyResult {
+                out_private,
+                out_public,
+                ..
+            } = ctx.create(key, public, None, Some(data), None, Some(pcrs))?;
+            //let transient = ctx.load(key, out_private, out_public)?;
+            Ok::<(), TpmError>(())
+        })?;
+        Ok(())
+    }
+}
 
 #[cfg(test)]
 mod tests {
@@ -344,8 +356,10 @@ mod tests {
         let data = SensitiveData::try_from("Hello".as_bytes().to_vec())
             .expect("Failed to create dummy sensitive buffer");
 
-        let _context = Context::new().own()?; //.policy(PcrPolicyOptions::default())?;
-                                              //.seal(data)?;
+        let _context = Context::new()
+            .own()?
+            .with_pcr_policy(PcrPolicyOptions::default())?
+            .seal(data)?;
         Ok(())
     }
 }
