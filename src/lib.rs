@@ -285,8 +285,6 @@ impl OwnedContext {
 
         self.flush_session(session)?;
 
-        //TODO flush_context?
-
         Ok(PcrSealedContext {
             ctx: self,
             pcr_selection_list,
