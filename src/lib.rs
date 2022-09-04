@@ -46,6 +46,7 @@ pub struct OwnedContext {
 pub struct PcrSealedContext {
     ctx: OwnedContext,
     pcr_selection_list: PcrSelectionList,
+    policy_digest: Digest,
 }
 
 static CONTEXT: Lazy<Mutex<tss_esapi::Context>> = Lazy::new(|| {
@@ -76,6 +77,10 @@ impl Context {
             where
                 F: FnOnce(&mut tss_esapi::Context) -> T;
             fn flush_context(&mut self, handle: ObjectHandle) -> tss_esapi::Result<()>;
+            fn policy_get_digest(
+                &mut self,
+                policy_session: PolicySession
+            ) -> tss_esapi::Result<Digest>;
             fn policy_pcr(
                 &mut self,
                 policy_session: PolicySession,
@@ -220,6 +225,10 @@ impl OwnedContext {
                 F: FnOnce(&mut tss_esapi::Context) -> T;
             fn flush_context(&mut self, handle: ObjectHandle) -> tss_esapi::Result<()>;
             fn pcr_digest(&mut self, pcr_selection_list: &PcrSelectionList) -> Result<Digest>;
+            fn policy_get_digest(
+                &mut self,
+                policy_session: PolicySession
+            ) -> tss_esapi::Result<Digest>;
             fn policy_pcr(
                 &mut self,
                 policy_session: PolicySession,
@@ -289,12 +298,14 @@ impl OwnedContext {
         };
 
         self.policy_pcr(session.try_into()?, digest, pcr_selection_list.clone())?;
+        let policy_digest = self.policy_get_digest(session.try_into()?)?;
 
         self.flush_session(session)?;
 
         Ok(PcrSealedContext {
             ctx: self,
             pcr_selection_list,
+            policy_digest,
         })
     }
 }
@@ -316,6 +327,10 @@ impl PcrSealedContext {
             fn execute_without_session<F, T>(&mut self, f: F) -> T
             where
                 F: FnOnce(&mut tss_esapi::Context) -> T;
+            fn policy_get_digest(
+                &mut self,
+                policy_session: PolicySession
+            ) -> tss_esapi::Result<Digest>;
         }
     }
 
