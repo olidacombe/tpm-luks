@@ -14,18 +14,25 @@ use delegate::delegate;
 use once_cell::sync::Lazy;
 use std::sync::{Mutex, MutexGuard};
 use thiserror::Error;
+use tss_esapi::attributes::ObjectAttributes;
 use tss_esapi::attributes::{SessionAttributes, SessionAttributesBuilder, SessionAttributesMask};
 use tss_esapi::constants::{SessionType, StartupType};
 use tss_esapi::handles::{KeyHandle, ObjectHandle};
-use tss_esapi::interface_types::algorithm::{HashingAlgorithm, RsaSchemeAlgorithm};
+use tss_esapi::interface_types::algorithm::{
+    HashingAlgorithm, PublicAlgorithm, RsaSchemeAlgorithm,
+};
 use tss_esapi::interface_types::key_bits::RsaKeyBits;
 use tss_esapi::interface_types::resource_handles::Hierarchy;
 use tss_esapi::interface_types::session_handles::{AuthSession, HmacSession, PolicySession};
 use tss_esapi::structures::{
-    Auth, CreateKeyResult, CreatePrimaryKeyResult, Data, Digest, MaxBuffer, Nonce,
-    PcrSelectionList, Public, RsaExponent, RsaScheme, SensitiveData, SymmetricDefinition,
+    Auth, CreateKeyResult, CreatePrimaryKeyResult, Data, Digest, KeyedHashScheme, MaxBuffer, Nonce,
+    PcrSelectionList, Public, PublicKeyRsa, PublicKeyedHashParameters, PublicRsaParametersBuilder,
+    RsaExponent, RsaScheme, SensitiveData, SymmetricDefinition, SymmetricDefinitionObject,
 };
-use tss_esapi::utils::create_unrestricted_signing_rsa_public;
+use tss_esapi::utils::{
+    create_restricted_decryption_rsa_public, create_unrestricted_encryption_decryption_rsa_public,
+    create_unrestricted_signing_rsa_public,
+};
 
 #[derive(Error, Debug)]
 pub enum TpmError {
@@ -77,6 +84,7 @@ impl Context {
             where
                 F: FnOnce(&mut tss_esapi::Context) -> T;
             fn flush_context(&mut self, handle: ObjectHandle) -> tss_esapi::Result<()>;
+            fn get_random(&mut self, num_bytes: usize) -> tss_esapi::Result<Digest>;
             fn policy_get_digest(
                 &mut self,
                 policy_session: PolicySession
@@ -114,19 +122,50 @@ impl Context {
     pub fn own(mut self) -> Result<OwnedContext> {
         self.startup(StartupType::Clear)?;
 
-        // Create public area for a rsa key
-        let public_area = create_unrestricted_signing_rsa_public(
-            RsaScheme::create(RsaSchemeAlgorithm::RsaSsa, Some(HashingAlgorithm::Sha256))?,
+        //let public = create_unrestricted_encryption_decryption_rsa_public(
+        //RsaKeyBits::Rsa2048,
+        //RsaExponent::default(),
+        //)?;
+
+        let public = create_restricted_decryption_rsa_public(
+            SymmetricDefinitionObject::AES_128_CFB,
             RsaKeyBits::Rsa2048,
             RsaExponent::default(),
         )?;
+
+        //let object_attributes = ObjectAttributes::builder()
+        //.with_fixed_tpm(true)
+        //.with_fixed_parent(true)
+        //.with_sensitive_data_origin(true)
+        //.with_user_with_auth(true)
+        //.with_decrypt(true)
+        //.with_sign_encrypt(false)
+        //.with_restricted(true)
+        //.build()?;
+
+        //let public = Public::builder()
+        //.with_public_algorithm(PublicAlgorithm::Rsa)
+        //.with_name_hashing_algorithm(HashingAlgorithm::Sha256)
+        //.with_object_attributes(object_attributes)
+        //.with_rsa_parameters(
+        //PublicRsaParametersBuilder::new()
+        //.with_scheme(RsaScheme::Null)
+        //.with_key_bits(RsaKeyBits::Rsa2048)
+        //.with_exponent(RsaExponent::default())
+        //.with_is_signing_key(false)
+        //.with_is_decryption_key(true)
+        //.with_restricted(true)
+        //.build()?,
+        //)
+        //.with_rsa_unique_identifier(PublicKeyRsa::default())
+        //.build()?;
 
         let CreatePrimaryKeyResult {
             key_handle: key,
             out_public: public,
             ..
         } = self.execute_with_nullauth_session(|ctx| {
-            ctx.create_primary(Hierarchy::Owner, public_area, None, None, None, None)
+            ctx.create_primary(Hierarchy::Owner, public, None, None, None, None)
         })?;
 
         Ok(OwnedContext {
@@ -269,23 +308,26 @@ impl OwnedContext {
         }
         Ok(())
     }
-    pub fn with_pcr_policy(mut self, options: PcrPolicyOptions) -> Result<PcrSealedContext> {
+    fn make_session(&mut self, t: SessionType) -> Result<AuthSession> {
         let session = self
             .start_auth_session(
                 None,
                 None,
                 None,
-                SessionType::Trial,
-                SymmetricDefinition::AES_256_CFB,
+                t,
+                SymmetricDefinition::AES_128_CFB,
                 HashingAlgorithm::Sha256,
             )?
             .ok_or(TpmError::AuthSessionCreate)?;
-
         let (session_attributes, session_attributes_mask) = SessionAttributes::builder()
             .with_decrypt(true)
             .with_encrypt(true)
             .build();
         self.tr_sess_set_attributes(session, session_attributes, session_attributes_mask)?;
+        Ok(session)
+    }
+    pub fn with_pcr_policy(mut self, options: PcrPolicyOptions) -> Result<PcrSealedContext> {
+        let session = self.make_session(SessionType::Trial)?;
 
         let PcrPolicyOptions {
             digest,
@@ -331,14 +373,38 @@ impl PcrSealedContext {
                 &mut self,
                 policy_session: PolicySession
             ) -> tss_esapi::Result<Digest>;
+            fn make_session(&mut self, t: SessionType) -> Result<AuthSession>;
         }
     }
 
     pub fn seal(&mut self, data: SensitiveData) -> Result<()> {
         let key = self.ctx.key;
-        let public = self.ctx.public.clone();
+
+        let object_attributes = ObjectAttributes::builder()
+            .with_fixed_tpm(true)
+            .with_fixed_parent(true)
+            .with_sensitive_data_origin(false)
+            .with_user_with_auth(false)
+            .with_decrypt(false)
+            .with_sign_encrypt(false)
+            .with_restricted(false)
+            .build()?;
+
+        let public = Public::builder()
+            .with_public_algorithm(PublicAlgorithm::KeyedHash)
+            .with_name_hashing_algorithm(HashingAlgorithm::Sha256)
+            .with_object_attributes(object_attributes)
+            .with_keyed_hash_parameters(PublicKeyedHashParameters::new(
+                KeyedHashScheme::HMAC_SHA_256,
+                //KeyedHashScheme::Null,
+            ))
+            // TODO properly somehow?
+            .with_keyed_hash_unique_identifier(self.ctx.ctx.get_random(32)?)
+            .build()?;
+
         let pcrs = self.pcr_selection_list.clone();
-        self.execute_with_nullauth_session(|ctx| {
+        let session = self.make_session(SessionType::Trial)?;
+        self.execute_with_session(Some(session), |ctx| {
             let CreateKeyResult {
                 out_private,
                 out_public,
