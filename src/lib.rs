@@ -14,7 +14,7 @@
 //! ```bash
 //! #!/usr/bin/env bash
 //!
-//! set -eou pipefail
+//! set -xeou pipefail
 //!
 //! docker kill swtpm || true
 //! docker run -d --rm --name swtpm -p 2321:2321 -p 2322:2322 olidacombe/swtpm
@@ -28,15 +28,17 @@
 //! tpm2_pcrread -o pcr.dat "sha1:0,1,2,3"
 //!
 //! tpm2_startauthsession -S session.dat
+//! tpm2_sessionconfig session.dat
 //! tpm2_policypcr -S session.dat -l "sha1:0,1,2,3" -f pcr.dat -L policy.dat
 //! tpm2_flushcontext session.dat
 //!
-//! echo hi | tpm2_create -Q -u key.pub -r key.priv -C prim.ctx -L policy.dat -i-
+//! echo hi | tpm2_create -u key.pub -r key.priv -C prim.ctx -L policy.dat -i-
 //! tpm2_flushcontext -t
 //! tpm2_load -C prim.ctx -u key.pub -r key.priv -n unseal.key.name -c
 //! unseal.key.ctx
 //!
 //! tpm2_startauthsession --policy-session -S session.dat
+//! tpm2_sessionconfig session.dat
 //! tpm2_policypcr -S session.dat -l "sha1:0,1,2,3" -f pcr.dat -L policy.dat
 //!
 //! tpm2_unseal -psession:session.dat -c unseal.key.ctx
@@ -54,13 +56,15 @@ use tss_esapi::handles::{KeyHandle, ObjectHandle};
 use tss_esapi::interface_types::algorithm::{
     HashingAlgorithm, PublicAlgorithm, RsaSchemeAlgorithm,
 };
+use tss_esapi::interface_types::ecc::EccCurve;
 use tss_esapi::interface_types::key_bits::RsaKeyBits;
 use tss_esapi::interface_types::resource_handles::Hierarchy;
 use tss_esapi::interface_types::session_handles::{AuthSession, HmacSession, PolicySession};
 use tss_esapi::structures::{
-    Auth, CreateKeyResult, CreatePrimaryKeyResult, Data, Digest, KeyedHashScheme, MaxBuffer, Nonce,
-    PcrSelectionList, Public, PublicKeyRsa, PublicKeyedHashParameters, PublicRsaParametersBuilder,
-    RsaExponent, RsaScheme, SensitiveData, SymmetricDefinition, SymmetricDefinitionObject,
+    Auth, CreateKeyResult, CreatePrimaryKeyResult, Data, Digest, EccPoint, KeyedHashScheme,
+    MaxBuffer, Nonce, PcrSelectionList, Public, PublicEccParametersBuilder, PublicKeyRsa,
+    PublicKeyedHashParameters, PublicRsaParametersBuilder, RsaExponent, RsaScheme, SensitiveData,
+    SymmetricDefinition, SymmetricDefinitionObject,
 };
 use tss_esapi::utils::{
     create_restricted_decryption_rsa_public, create_unrestricted_encryption_decryption_rsa_public,
@@ -160,45 +164,43 @@ impl Context {
         //RsaExponent::default(),
         //)?;
 
-        let public = create_restricted_decryption_rsa_public(
-            SymmetricDefinitionObject::AES_128_CFB,
-            RsaKeyBits::Rsa2048,
-            RsaExponent::default(),
-        )?;
+        //let public = create_restricted_decryption_rsa_public(
+        //SymmetricDefinitionObject::AES_128_CFB,
+        //RsaKeyBits::Rsa2048,
+        //RsaExponent::default(),
+        //)?;
 
-        //let object_attributes = ObjectAttributes::builder()
-        //.with_fixed_tpm(true)
-        //.with_fixed_parent(true)
-        //.with_sensitive_data_origin(true)
-        //.with_user_with_auth(true)
-        //.with_decrypt(true)
-        //.with_sign_encrypt(false)
-        //.with_restricted(true)
-        //.build()?;
+        let object_attributes = ObjectAttributes::builder()
+            .with_fixed_tpm(true)
+            .with_fixed_parent(true)
+            .with_sensitive_data_origin(true)
+            .with_user_with_auth(true)
+            .with_decrypt(true)
+            .with_sign_encrypt(false)
+            .with_restricted(true)
+            .build()?;
 
-        //let public = Public::builder()
-        //.with_public_algorithm(PublicAlgorithm::Rsa)
-        //.with_name_hashing_algorithm(HashingAlgorithm::Sha256)
-        //.with_object_attributes(object_attributes)
-        //.with_rsa_parameters(
-        //PublicRsaParametersBuilder::new()
-        //.with_scheme(RsaScheme::Null)
-        //.with_key_bits(RsaKeyBits::Rsa2048)
-        //.with_exponent(RsaExponent::default())
-        //.with_is_signing_key(false)
-        //.with_is_decryption_key(true)
-        //.with_restricted(true)
-        //.build()?,
-        //)
-        //.with_rsa_unique_identifier(PublicKeyRsa::default())
-        //.build()?;
+        let public = Public::builder()
+            .with_public_algorithm(PublicAlgorithm::Ecc)
+            .with_name_hashing_algorithm(HashingAlgorithm::Sha256)
+            .with_object_attributes(object_attributes)
+            .with_ecc_parameters(
+                PublicEccParametersBuilder::new_restricted_decryption_key(
+                    SymmetricDefinitionObject::AES_128_CFB,
+                    EccCurve::NistP256,
+                )
+                .build()?,
+            )
+            // TODO check we're doing something proper here
+            .with_ecc_unique_identifier(EccPoint::default())
+            .build()?;
 
         let CreatePrimaryKeyResult {
             key_handle: key,
             out_public: public,
             ..
         } = self.execute_with_nullauth_session(|ctx| {
-            ctx.create_primary(Hierarchy::Owner, public, None, None, None, None)
+            ctx.create_primary(Hierarchy::Endorsement, public, None, None, None, None)
         })?;
 
         Ok(OwnedContext {
@@ -230,7 +232,7 @@ impl Context {
         let (digest, _ticket) = self.execute_without_session(|ctx| {
             ctx.hash(
                 concatenated_pcr_digests,
-                HashingAlgorithm::Sha256,
+                HashingAlgorithm::Sha1,
                 Hierarchy::Owner,
             )
         })?;
@@ -267,8 +269,7 @@ impl Default for PcrPolicyOptions {
     fn default() -> Self {
         use tss_esapi::structures::pcr_slot::PcrSlot;
         let pcr_selection_list = PcrSelectionList::builder()
-            //.with_selection(HashingAlgorithm::Sha256, &[PcrSlot::Slot0])
-            .with_selection(HashingAlgorithm::Sha256, &[PcrSlot::Slot7])
+            .with_selection(HashingAlgorithm::Sha1, &[PcrSlot::Slot7])
             .build()
             .unwrap();
         Self {
@@ -374,7 +375,6 @@ impl OwnedContext {
 
         self.policy_pcr(session.try_into()?, digest, pcr_selection_list.clone())?;
         let policy_digest = self.policy_get_digest(session.try_into()?)?;
-
         self.flush_session(session)?;
 
         Ok(PcrSealedContext {
@@ -402,6 +402,7 @@ impl PcrSealedContext {
             fn execute_without_session<F, T>(&mut self, f: F) -> T
             where
                 F: FnOnce(&mut tss_esapi::Context) -> T;
+            fn flush_session(&mut self, session: AuthSession) -> Result<()>;
             fn policy_get_digest(
                 &mut self,
                 policy_session: PolicySession
@@ -432,20 +433,21 @@ impl PcrSealedContext {
                 KeyedHashScheme::Null, // according to https://tpm2-tools.readthedocs.io/en/latest/man/tpm2_create.1/
             ))
             // TODO properly somehow?
-            .with_keyed_hash_unique_identifier(self.ctx.ctx.get_random(32)?)
+            .with_keyed_hash_unique_identifier(Digest::default())
             .build()?;
 
         let pcrs = self.pcr_selection_list.clone();
-        let session = self.make_session(SessionType::Trial)?;
-        self.execute_with_session(Some(session), |ctx| {
+        //let session = self.make_session(SessionType::Trial)?;
+        self.execute_with_session(Some(AuthSession::Password), |ctx| {
             let CreateKeyResult {
                 out_private,
                 out_public,
                 ..
             } = ctx.create(key, public, None, Some(data), None, Some(pcrs))?;
-            //let transient = ctx.load(key, out_private, out_public)?;
+            let transient = ctx.load(key, out_private, out_public)?;
             Ok::<(), TpmError>(())
         })?;
+        //self.flush_session(session)?;
         Ok(())
     }
 }
