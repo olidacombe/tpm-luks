@@ -395,8 +395,8 @@ impl PcrSealedContext {
             .with_name_hashing_algorithm(HashingAlgorithm::Sha256)
             .with_object_attributes(object_attributes)
             .with_keyed_hash_parameters(PublicKeyedHashParameters::new(
-                KeyedHashScheme::HMAC_SHA_256,
-                //KeyedHashScheme::Null,
+                //KeyedHashScheme::HMAC_SHA_256,
+                KeyedHashScheme::Null, // according to https://tpm2-tools.readthedocs.io/en/latest/man/tpm2_create.1/
             ))
             // TODO properly somehow?
             .with_keyed_hash_unique_identifier(self.ctx.ctx.get_random(32)?)
