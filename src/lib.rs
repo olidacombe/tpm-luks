@@ -498,10 +498,17 @@ mod tests {
             0x81, 0x00, 0x00, 0x01,
         ]))?);
 
-        let _context = Context::new()
+        Context::new()
             .own()?
             .with_pcr_policy(PcrPolicyOptions::default())?
             .seal(data, handle)?;
+
+        // TODO
+
+        //let unsealed = Context::new()
+        //.auth(PcrPolicyOptions::default())?
+        //.unseal(handle)?;
+
         Ok(())
     }
 }
