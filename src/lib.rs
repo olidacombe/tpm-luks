@@ -51,20 +51,21 @@ use std::sync::{Mutex, MutexGuard};
 use thiserror::Error;
 use tss_esapi::attributes::ObjectAttributes;
 use tss_esapi::attributes::{SessionAttributes, SessionAttributesBuilder, SessionAttributesMask};
-use tss_esapi::constants::{SessionType, StartupType};
-use tss_esapi::handles::{KeyHandle, ObjectHandle};
+use tss_esapi::constants::{CapabilityType, SessionType, StartupType};
+use tss_esapi::handles::{KeyHandle, ObjectHandle, PersistentTpmHandle, TpmHandle};
 use tss_esapi::interface_types::algorithm::{
     HashingAlgorithm, PublicAlgorithm, RsaSchemeAlgorithm,
 };
+use tss_esapi::interface_types::dynamic_handles::Persistent;
 use tss_esapi::interface_types::ecc::EccCurve;
 use tss_esapi::interface_types::key_bits::RsaKeyBits;
-use tss_esapi::interface_types::resource_handles::Hierarchy;
+use tss_esapi::interface_types::resource_handles::{Hierarchy, Provision};
 use tss_esapi::interface_types::session_handles::{AuthSession, HmacSession, PolicySession};
 use tss_esapi::structures::{
-    Auth, CreateKeyResult, CreatePrimaryKeyResult, Data, Digest, EccPoint, KeyedHashScheme,
-    MaxBuffer, Nonce, PcrSelectionList, Public, PublicEccParametersBuilder, PublicKeyRsa,
-    PublicKeyedHashParameters, PublicRsaParametersBuilder, RsaExponent, RsaScheme, SensitiveData,
-    SymmetricDefinition, SymmetricDefinitionObject,
+    Auth, CapabilityData, CreateKeyResult, CreatePrimaryKeyResult, Data, Digest, EccPoint,
+    KeyedHashScheme, MaxBuffer, Nonce, PcrSelectionList, Public, PublicEccParametersBuilder,
+    PublicKeyRsa, PublicKeyedHashParameters, PublicRsaParametersBuilder, RsaExponent, RsaScheme,
+    SensitiveData, SymmetricDefinition, SymmetricDefinitionObject,
 };
 use tss_esapi::utils::{
     create_restricted_decryption_rsa_public, create_unrestricted_encryption_decryption_rsa_public,
@@ -121,6 +122,12 @@ impl Context {
             where
                 F: FnOnce(&mut tss_esapi::Context) -> T;
             fn flush_context(&mut self, handle: ObjectHandle) -> tss_esapi::Result<()>;
+            fn get_capability(
+                &mut self,
+                capability: CapabilityType,
+                property: u32,
+                property_count: u32
+            ) -> tss_esapi::Result<(CapabilityData, bool)>;
             fn get_random(&mut self, num_bytes: usize) -> tss_esapi::Result<Digest>;
             fn policy_get_digest(
                 &mut self,
@@ -150,6 +157,21 @@ impl Context {
             ) -> tss_esapi::Result<()>;
         }
     }
+
+    //fn flush_transient(&mut self) -> Result<()> {
+    //let (capabilities, _) = self.get_capability(CapabilityType::Handles, 0, 80)?;
+    //if let CapabilityData::Handles(handles) = capabilities {
+    //for handle in handles.into_inner().into_iter().filter_map(|h| match h {
+    //TpmHandle::Transient(_) => Some(h),
+    //_ => None,
+    //}) {
+    // // oh dear, not a thing for TpmHandle
+    //self.flush_context(handle.into())?;
+    //}
+    //}
+    //Ok(())
+    //}
+
     pub fn new() -> Self {
         let mut context = CONTEXT.lock().unwrap();
         context.clear_sessions();
@@ -411,7 +433,7 @@ impl PcrSealedContext {
         }
     }
 
-    pub fn seal(&mut self, data: SensitiveData) -> Result<()> {
+    pub fn seal(&mut self, data: SensitiveData, handle: Persistent) -> Result<()> {
         let key = self.ctx.key;
 
         let object_attributes = ObjectAttributes::builder()
@@ -444,7 +466,8 @@ impl PcrSealedContext {
                 out_public,
                 ..
             } = ctx.create(key, public, None, Some(data), None, Some(pcrs))?;
-            let transient = ctx.load(key, out_private, out_public)?;
+            let transient = ctx.load(key, out_private, out_public)?.into();
+            ctx.evict_control(Provision::Owner, transient, handle)?;
             Ok::<(), TpmError>(())
         })?;
         //self.flush_session(session)?;
@@ -471,11 +494,14 @@ mod tests {
     fn seal() -> Result<()> {
         let data = SensitiveData::try_from("Hello".as_bytes().to_vec())
             .expect("Failed to create dummy sensitive buffer");
+        let handle = Persistent::Persistent(PersistentTpmHandle::new(u32::from_be_bytes([
+            0x81, 0x00, 0x00, 0x01,
+        ]))?);
 
         let _context = Context::new()
             .own()?
             .with_pcr_policy(PcrPolicyOptions::default())?
-            .seal(data)?;
+            .seal(data, handle)?;
         Ok(())
     }
 }
