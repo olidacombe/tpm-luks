@@ -95,6 +95,7 @@ pub struct PcrSealedContext {
 }
 pub struct AuthedContext {
     ctx: Context,
+    session: AuthSession,
 }
 
 static CONTEXT: Lazy<Mutex<tss_esapi::Context>> = Lazy::new(|| {
@@ -175,12 +176,11 @@ impl Context {
     //Ok(())
     //}
 
-    pub fn auth(mut self, pcr_selection_list: PcrSelectionList) -> Result<AuthedContext> {
+    fn auth(mut self, pcr_selection_list: PcrSelectionList) -> Result<AuthedContext> {
         let digest = self.pcr_digest(&pcr_selection_list)?;
         let session = self.make_session(SessionType::Policy)?;
         self.policy_pcr(session.try_into()?, digest, pcr_selection_list)?;
-        self.flush_session(session)?;
-        Ok(AuthedContext { ctx: self })
+        Ok(AuthedContext { ctx: self, session })
     }
 
     fn make_session(&mut self, t: SessionType) -> Result<AuthSession> {
@@ -317,9 +317,16 @@ impl Default for Context {
     }
 }
 
+// TODO acknowlege this does nothing useful?
 impl Drop for Context {
     fn drop(&mut self) {
         self.0.clear_sessions();
+    }
+}
+
+impl Drop for AuthedContext {
+    fn drop(&mut self) {
+        self.ctx.flush_session(self.session);
     }
 }
 
@@ -491,8 +498,9 @@ impl PcrSealedContext {
 }
 
 impl AuthedContext {
-    pub fn unseal(&mut self, handle: Persistent) -> Result<SensitiveData> {
-        todo!()
+    pub fn unseal(mut self, handle: Persistent) -> Result<SensitiveData> {
+        // TODO
+        Ok(SensitiveData::try_from("Hello".as_bytes().to_vec())?)
     }
 }
 
