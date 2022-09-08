@@ -93,6 +93,9 @@ pub struct PcrSealedContext {
     pcr_selection_list: PcrSelectionList,
     policy_digest: Digest,
 }
+pub struct AuthedContext {
+    ctx: Context,
+}
 
 static CONTEXT: Lazy<Mutex<tss_esapi::Context>> = Lazy::new(|| {
     use tss_esapi::tcti_ldr::TctiNameConf;
@@ -172,6 +175,33 @@ impl Context {
     //Ok(())
     //}
 
+    pub fn auth(mut self, pcr_selection_list: PcrSelectionList) -> Result<AuthedContext> {
+        let digest = self.pcr_digest(&pcr_selection_list)?;
+        let session = self.make_session(SessionType::Policy)?;
+        self.policy_pcr(session.try_into()?, digest, pcr_selection_list)?;
+        self.flush_session(session)?;
+        Ok(AuthedContext { ctx: self })
+    }
+
+    fn make_session(&mut self, t: SessionType) -> Result<AuthSession> {
+        let session = self
+            .start_auth_session(
+                None,
+                None,
+                None,
+                t,
+                SymmetricDefinition::AES_128_CFB,
+                HashingAlgorithm::Sha256,
+            )?
+            .ok_or(TpmError::AuthSessionCreate)?;
+        let (session_attributes, session_attributes_mask) = SessionAttributes::builder()
+            .with_decrypt(true)
+            .with_encrypt(true)
+            .build();
+        self.tr_sess_set_attributes(session, session_attributes, session_attributes_mask)?;
+        Ok(session)
+    }
+
     pub fn new() -> Self {
         let mut context = CONTEXT.lock().unwrap();
         context.clear_sessions();
@@ -230,6 +260,24 @@ impl Context {
             key,
             public,
         })
+    }
+
+    fn flush_session(&mut self, session: AuthSession) -> Result<()> {
+        let handle = match session {
+            AuthSession::HmacSession(session) => match session {
+                HmacSession::HmacSession { session_handle, .. } => Some(session_handle.into()),
+                _ => None,
+            },
+            AuthSession::PolicySession(session) => match session {
+                PolicySession::PolicySession { session_handle, .. } => Some(session_handle.into()),
+                _ => None,
+            },
+            _ => None,
+        };
+        if let Some(handle) = handle {
+            self.flush_context(handle)?;
+        }
+        Ok(())
     }
 
     pub fn revision(&mut self) -> Result<Option<u32>> {
@@ -319,6 +367,8 @@ impl OwnedContext {
             where
                 F: FnOnce(&mut tss_esapi::Context) -> T;
             fn flush_context(&mut self, handle: ObjectHandle) -> tss_esapi::Result<()>;
+            fn flush_session(&mut self, session: AuthSession) -> Result<()>;
+            fn make_session(&mut self, t: SessionType) -> Result<AuthSession>;
             fn pcr_digest(&mut self, pcr_selection_list: &PcrSelectionList) -> Result<Digest>;
             fn policy_get_digest(
                 &mut self,
@@ -346,41 +396,6 @@ impl OwnedContext {
                 mask: SessionAttributesMask
             ) -> tss_esapi::Result<()>;
         }
-    }
-    fn flush_session(&mut self, session: AuthSession) -> Result<()> {
-        let handle = match session {
-            AuthSession::HmacSession(session) => match session {
-                HmacSession::HmacSession { session_handle, .. } => Some(session_handle.into()),
-                _ => None,
-            },
-            AuthSession::PolicySession(session) => match session {
-                PolicySession::PolicySession { session_handle, .. } => Some(session_handle.into()),
-                _ => None,
-            },
-            _ => None,
-        };
-        if let Some(handle) = handle {
-            self.flush_context(handle)?;
-        }
-        Ok(())
-    }
-    fn make_session(&mut self, t: SessionType) -> Result<AuthSession> {
-        let session = self
-            .start_auth_session(
-                None,
-                None,
-                None,
-                t,
-                SymmetricDefinition::AES_128_CFB,
-                HashingAlgorithm::Sha256,
-            )?
-            .ok_or(TpmError::AuthSessionCreate)?;
-        let (session_attributes, session_attributes_mask) = SessionAttributes::builder()
-            .with_decrypt(true)
-            .with_encrypt(true)
-            .build();
-        self.tr_sess_set_attributes(session, session_attributes, session_attributes_mask)?;
-        Ok(session)
     }
     pub fn with_pcr_policy(mut self, options: PcrPolicyOptions) -> Result<PcrSealedContext> {
         let session = self.make_session(SessionType::Trial)?;
@@ -475,6 +490,12 @@ impl PcrSealedContext {
     }
 }
 
+impl AuthedContext {
+    pub fn unseal(&mut self, handle: Persistent) -> Result<SensitiveData> {
+        todo!()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -503,11 +524,9 @@ mod tests {
             .with_pcr_policy(PcrPolicyOptions::default())?
             .seal(data, handle)?;
 
-        // TODO
-
-        //let unsealed = Context::new()
-        //.auth(PcrPolicyOptions::default())?
-        //.unseal(handle)?;
+        let unsealed = Context::new()
+            .auth(PcrPolicyOptions::default().pcr_selection_list)?
+            .unseal(handle)?;
 
         Ok(())
     }
