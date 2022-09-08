@@ -178,8 +178,19 @@ impl Context {
 
     fn auth(mut self, pcr_selection_list: PcrSelectionList) -> Result<AuthedContext> {
         let digest = self.pcr_digest(&pcr_selection_list)?;
-        let session = self.make_session(SessionType::Policy)?;
-        self.policy_pcr(session.try_into()?, digest, pcr_selection_list)?;
+        //let session = self.make_session(SessionType::Policy)?;
+        let session = self
+            .start_auth_session(
+                None,
+                None,
+                None,
+                SessionType::Policy,
+                SymmetricDefinition::AES_128_CFB,
+                HashingAlgorithm::Sha256,
+            )?
+            .ok_or(TpmError::AuthSessionCreate)?;
+        // TODO
+        //self.policy_pcr(session.try_into()?, digest, pcr_selection_list)?;
         Ok(AuthedContext { ctx: self, session })
     }
 
@@ -455,7 +466,7 @@ impl PcrSealedContext {
         }
     }
 
-    pub fn seal(&mut self, data: SensitiveData, handle: Persistent) -> Result<()> {
+    pub fn seal(&mut self, data: SensitiveData, handle: PersistentTpmHandle) -> Result<()> {
         let key = self.ctx.key;
 
         let object_attributes = ObjectAttributes::builder()
@@ -481,7 +492,6 @@ impl PcrSealedContext {
             .build()?;
 
         let pcrs = self.pcr_selection_list.clone();
-        //let session = self.make_session(SessionType::Trial)?;
         self.execute_with_session(Some(AuthSession::Password), |ctx| {
             let CreateKeyResult {
                 out_private,
@@ -489,18 +499,38 @@ impl PcrSealedContext {
                 ..
             } = ctx.create(key, public, None, Some(data), None, Some(pcrs))?;
             let transient = ctx.load(key, out_private, out_public)?.into();
-            ctx.evict_control(Provision::Owner, transient, handle)?;
+            ctx.evict_control(Provision::Owner, transient, Persistent::Persistent(handle))?;
             Ok::<(), TpmError>(())
         })?;
-        //self.flush_session(session)?;
         Ok(())
     }
 }
 
 impl AuthedContext {
-    pub fn unseal(mut self, handle: Persistent) -> Result<SensitiveData> {
-        // TODO
-        Ok(SensitiveData::try_from("Hello".as_bytes().to_vec())?)
+    delegate! {
+        to self.ctx {
+            fn execute_with_session<F, T>(
+                &mut self,
+                session_handle: Option<AuthSession>,
+                f: F
+            ) -> T
+            where
+                F: FnOnce(&mut tss_esapi::Context) -> T;
+            fn execute_without_session<F, T>(&mut self, f: F) -> T
+            where
+                F: FnOnce(&mut tss_esapi::Context) -> T;
+        }
+    }
+
+    pub fn unseal(mut self, handle: PersistentTpmHandle) -> Result<SensitiveData> {
+        //let Persistent::Persistent(handle) = handle;
+        let object_handle =
+            self.execute_without_session(|ctx| ctx.tr_from_tpm_public(handle.into()))?;
+        //let handle: ObjectHandle = handle.try_into()?;
+        let data =
+            self.execute_with_session(Some(self.session), |ctx| ctx.unseal(object_handle.into()))?;
+        // TODO extend
+        Ok(data)
     }
 }
 
@@ -523,9 +553,7 @@ mod tests {
     fn seal() -> Result<()> {
         let data = SensitiveData::try_from("Hello".as_bytes().to_vec())
             .expect("Failed to create dummy sensitive buffer");
-        let handle = Persistent::Persistent(PersistentTpmHandle::new(u32::from_be_bytes([
-            0x81, 0x00, 0x00, 0x01,
-        ]))?);
+        let handle = PersistentTpmHandle::new(u32::from_be_bytes([0x81, 0x00, 0x00, 0x01]))?;
 
         Context::new()
             .own()?
