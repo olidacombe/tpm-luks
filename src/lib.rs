@@ -178,6 +178,7 @@ impl Context {
 
     fn auth(mut self, pcr_selection_list: PcrSelectionList) -> Result<AuthedContext> {
         let digest = self.pcr_digest(&pcr_selection_list, HashingAlgorithm::Sha256)?;
+        dbg!(&digest);
         //let session = self.make_session(SessionType::Policy)?;
         let session = self
             .start_auth_session(
@@ -223,17 +224,6 @@ impl Context {
 
     pub fn own(mut self) -> Result<OwnedContext> {
         self.startup(StartupType::Clear)?;
-
-        //let public = create_unrestricted_encryption_decryption_rsa_public(
-        //RsaKeyBits::Rsa2048,
-        //RsaExponent::default(),
-        //)?;
-
-        //let public = create_restricted_decryption_rsa_public(
-        //SymmetricDefinitionObject::AES_128_CFB,
-        //RsaKeyBits::Rsa2048,
-        //RsaExponent::default(),
-        //)?;
 
         let object_attributes = ObjectAttributes::builder()
             .with_fixed_tpm(true)
