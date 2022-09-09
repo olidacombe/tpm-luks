@@ -177,7 +177,7 @@ impl Context {
     }
 
     fn auth(mut self, pcr_selection_list: PcrSelectionList) -> Result<AuthedContext> {
-        let digest = self.pcr_digest(&pcr_selection_list)?;
+        let digest = self.pcr_digest(&pcr_selection_list, HashingAlgorithm::Sha256)?;
         //let session = self.make_session(SessionType::Policy)?;
         let session = self
             .start_auth_session(
@@ -190,7 +190,7 @@ impl Context {
             )?
             .ok_or(TpmError::AuthSessionCreate)?;
         // TODO
-        //self.policy_pcr(session.try_into()?, digest, pcr_selection_list)?;
+        self.policy_pcr(session.try_into()?, digest, pcr_selection_list)?;
         Ok(AuthedContext { ctx: self, session })
     }
 
@@ -300,7 +300,11 @@ impl Context {
     }
 
     /// Returns the digest for a PCR selection list
-    fn pcr_digest(&mut self, pcr_selection_list: &PcrSelectionList) -> Result<Digest> {
+    fn pcr_digest(
+        &mut self,
+        pcr_selection_list: &PcrSelectionList,
+        hashing_algorithm: HashingAlgorithm,
+    ) -> Result<Digest> {
         let (_update_counter, _selection_list, digest_list) =
             self.execute_without_session(|ctx| ctx.pcr_read(pcr_selection_list.clone()))?;
 
@@ -315,7 +319,7 @@ impl Context {
         let (digest, _ticket) = self.execute_without_session(|ctx| {
             ctx.hash(
                 concatenated_pcr_digests,
-                HashingAlgorithm::Sha1,
+                hashing_algorithm, // must match start_auth_session, regardless of PCR banks used
                 Hierarchy::Owner,
             )
         })?;
@@ -353,7 +357,7 @@ impl Default for PcrPolicyOptions {
     fn default() -> Self {
         use tss_esapi::structures::pcr_slot::PcrSlot;
         let pcr_selection_list = PcrSelectionList::builder()
-            .with_selection(HashingAlgorithm::Sha1, &[PcrSlot::Slot7])
+            .with_selection(HashingAlgorithm::Sha1, &[PcrSlot::Slot0, PcrSlot::Slot1])
             .build()
             .unwrap();
         Self {
@@ -384,7 +388,7 @@ impl OwnedContext {
             fn flush_session(&mut self, session: AuthSession) -> Result<()>;
             fn flush_transient(&mut self) -> Result<()>;
             fn make_session(&mut self, t: SessionType) -> Result<AuthSession>;
-            fn pcr_digest(&mut self, pcr_selection_list: &PcrSelectionList) -> Result<Digest>;
+            fn pcr_digest(&mut self, pcr_selection_list: &PcrSelectionList, hashing_algorithm: HashingAlgorithm) -> Result<Digest>;
             fn policy_get_digest(
                 &mut self,
                 policy_session: PolicySession
@@ -422,7 +426,7 @@ impl OwnedContext {
 
         let digest = match digest {
             Some(digest) => digest,
-            None => self.pcr_digest(&pcr_selection_list)?,
+            None => self.pcr_digest(&pcr_selection_list, HashingAlgorithm::Sha256)?,
         };
 
         self.policy_pcr(session.try_into()?, digest, pcr_selection_list.clone())?;
