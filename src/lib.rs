@@ -162,19 +162,19 @@ impl Context {
         }
     }
 
-    //fn flush_transient(&mut self) -> Result<()> {
-    //let (capabilities, _) = self.get_capability(CapabilityType::Handles, 0, 80)?;
-    //if let CapabilityData::Handles(handles) = capabilities {
-    //for handle in handles.into_inner().into_iter().filter_map(|h| match h {
-    //TpmHandle::Transient(_) => Some(h),
-    //_ => None,
-    //}) {
-    // // oh dear, not a thing for TpmHandle
-    //self.flush_context(handle.into())?;
-    //}
-    //}
-    //Ok(())
-    //}
+    fn flush_transient(&mut self) -> Result<()> {
+        let (capabilities, _) = self.get_capability(CapabilityType::Handles, 0, 80)?;
+        if let CapabilityData::Handles(handles) = capabilities {
+            for handle in handles.into_inner().into_iter().filter_map(|h| match h {
+                TpmHandle::Transient(_) => Some(h),
+                _ => None,
+            }) {
+                let handle = self.execute_without_session(|ctx| ctx.tr_from_tpm_public(handle))?;
+                self.flush_context(handle).ok();
+            }
+        }
+        Ok(())
+    }
 
     fn auth(mut self, pcr_selection_list: PcrSelectionList) -> Result<AuthedContext> {
         let digest = self.pcr_digest(&pcr_selection_list)?;
@@ -213,10 +213,12 @@ impl Context {
         Ok(session)
     }
 
-    pub fn new() -> Self {
+    pub fn new() -> Result<Self> {
         let mut context = CONTEXT.lock().unwrap();
         context.clear_sessions();
-        Self(context)
+        let mut ctx = Self(context);
+        ctx.flush_transient()?;
+        Ok(ctx)
     }
 
     pub fn own(mut self) -> Result<OwnedContext> {
@@ -322,12 +324,6 @@ impl Context {
     }
 }
 
-impl Default for Context {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
 // TODO acknowlege this does nothing useful?
 impl Drop for Context {
     fn drop(&mut self) {
@@ -337,7 +333,7 @@ impl Drop for Context {
 
 impl Drop for AuthedContext {
     fn drop(&mut self) {
-        self.ctx.flush_session(self.session);
+        self.ctx.flush_session(self.session).ok();
     }
 }
 
@@ -386,6 +382,7 @@ impl OwnedContext {
                 F: FnOnce(&mut tss_esapi::Context) -> T;
             fn flush_context(&mut self, handle: ObjectHandle) -> tss_esapi::Result<()>;
             fn flush_session(&mut self, session: AuthSession) -> Result<()>;
+            fn flush_transient(&mut self) -> Result<()>;
             fn make_session(&mut self, t: SessionType) -> Result<AuthSession>;
             fn pcr_digest(&mut self, pcr_selection_list: &PcrSelectionList) -> Result<Digest>;
             fn policy_get_digest(
@@ -458,6 +455,7 @@ impl PcrSealedContext {
             where
                 F: FnOnce(&mut tss_esapi::Context) -> T;
             fn flush_session(&mut self, session: AuthSession) -> Result<()>;
+            fn flush_transient(&mut self) -> Result<()>;
             fn policy_get_digest(
                 &mut self,
                 policy_session: PolicySession
@@ -491,6 +489,19 @@ impl PcrSealedContext {
             .with_keyed_hash_unique_identifier(Digest::default())
             .build()?;
 
+        //self.flush_transient()?;
+        let retrieved_persistent_handle = self
+            .execute_without_session(|ctx| ctx.tr_from_tpm_public(TpmHandle::Persistent(handle)))?;
+        // Evict the persitent handle from the tpm
+        // An authorization session is required!
+        let _ = self.execute_with_session(Some(AuthSession::Password), |ctx| {
+            ctx.evict_control(
+                Provision::Owner,
+                retrieved_persistent_handle,
+                Persistent::Persistent(handle),
+            )
+        })?;
+
         let pcrs = self.pcr_selection_list.clone();
         self.execute_with_session(Some(AuthSession::Password), |ctx| {
             let CreateKeyResult {
@@ -519,14 +530,14 @@ impl AuthedContext {
             fn execute_without_session<F, T>(&mut self, f: F) -> T
             where
                 F: FnOnce(&mut tss_esapi::Context) -> T;
+            fn flush_transient(&mut self) -> Result<()>;
         }
     }
 
     pub fn unseal(mut self, handle: PersistentTpmHandle) -> Result<SensitiveData> {
-        //let Persistent::Persistent(handle) = handle;
+        //return Ok(SensitiveData::try_from("Schmello".as_bytes().to_vec())?);
         let object_handle =
             self.execute_without_session(|ctx| ctx.tr_from_tpm_public(handle.into()))?;
-        //let handle: ObjectHandle = handle.try_into()?;
         let data =
             self.execute_with_session(Some(self.session), |ctx| ctx.unseal(object_handle.into()))?;
         // TODO extend
@@ -541,7 +552,7 @@ mod tests {
 
     //#[test]
     fn get_revision() -> Result<()> {
-        let mut context = Context::new();
+        let mut context = Context::new()?;
         let revision = context.revision()?;
         assert!(revision.is_some());
 
@@ -551,18 +562,19 @@ mod tests {
     //https://tpm2-software.github.io/2020/04/13/Disk-Encryption.html#pcr-policy-authentication---access-control-of-sealed-pass-phrase-on-tpm2-with-pcr-sealing
     #[test]
     fn seal() -> Result<()> {
-        let data = SensitiveData::try_from("Hello".as_bytes().to_vec())
-            .expect("Failed to create dummy sensitive buffer");
+        let data = SensitiveData::try_from("Hello".as_bytes().to_vec())?;
         let handle = PersistentTpmHandle::new(u32::from_be_bytes([0x81, 0x00, 0x00, 0x01]))?;
 
-        Context::new()
+        Context::new()?
             .own()?
             .with_pcr_policy(PcrPolicyOptions::default())?
-            .seal(data, handle)?;
+            .seal(data.clone(), handle)?;
 
-        let unsealed = Context::new()
+        let unsealed = Context::new()?
             .auth(PcrPolicyOptions::default().pcr_selection_list)?
             .unseal(handle)?;
+
+        assert_eq!(data, unsealed);
 
         Ok(())
     }

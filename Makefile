@@ -25,8 +25,11 @@ dev: swtpm dev-image ## run cargo test (with `cargo watch`) inside a dev contain
 	-docker kill tpm-luks-dev
 	docker run --rm -it --name tpm-luks-dev -e TCTI=swtpm:port=2321,host=host.docker.internal -v $${PWD}:/tmp/src -w /tmp/src tpm-luks-dev cargo watch -x test
 
-dev-local: swtpm ## run cargo test (with `cargo watch`) locally - if you're already on a suitable system like linux
+dev-local: swtpm ## run cargo test (with `cargo watch`) locally against `swtpm` container - if you're already on a suitable system like linux
 	TCTI=swtpm:port=2321,host=127.0.0.1 cargo watch -x test
+
+dev-raw: ## run cargo test (with `cargo watch`) locally - if you're already on a suitable system like linux
+	TCTI=device:/dev/tpmrm0 cargo watch -x test
 
 help: ## Show this help
 	@egrep -h '\s##\s' $(MAKEFILE_LIST) | sort | awk 'BEGIN {FS = ":.*?## "}; {printf "\033[36m%-20s\033[0m %s\n", $$1, $$2}'
