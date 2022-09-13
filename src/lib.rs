@@ -16,32 +16,32 @@
 //!
 //! set -xeou pipefail
 //!
+//! PCRS="sha1:0,1,2,3"
+//! PERM_HANDLE=0x81010001
+//!
 //! docker kill swtpm || true
 //! docker run -d --rm --name swtpm -p 2321:2321 -p 2322:2322 olidacombe/swtpm
 //! sleep 2
 //!
-//! rm -f prim.ctx.log \
-//!       session.dat \
-//!       policy.dat
+//! rm -f   prim.ctx.log \
+//!         session.dat \
+//!         policy.dat
 //!
 //! tpm2_createprimary -C e -g sha256 -G ecc -c prim.ctx | tee prim.ctx.log
-//! tpm2_pcrread -o pcr.dat "sha1:0,1,2,3"
+//! tpm2_pcrread -o pcr.dat $PCRS
 //!
 //! tpm2_startauthsession -S session.dat
-//! tpm2_sessionconfig session.dat
-//! tpm2_policypcr -S session.dat -l "sha1:0,1,2,3" -f pcr.dat -L policy.dat
+//! tpm2_policypcr -S session.dat -l $PCRS -f pcr.dat -L policy.dat
 //! tpm2_flushcontext session.dat
 //!
 //! echo hi | tpm2_create -u key.pub -r key.priv -C prim.ctx -L policy.dat -i-
 //! tpm2_flushcontext -t
-//! tpm2_load -C prim.ctx -u key.pub -r key.priv -n unseal.key.name -c
-//! unseal.key.ctx
+//! tpm2_load -C prim.ctx -u key.pub -r key.priv -c $PERM_HANDLE -n unseal.key.name
 //!
 //! tpm2_startauthsession --policy-session -S session.dat
-//! tpm2_sessionconfig session.dat
-//! tpm2_policypcr -S session.dat -l "sha1:0,1,2,3" -f pcr.dat -L policy.dat
+//! tpm2_policypcr -S session.dat -l $PCRS
 //!
-//! tpm2_unseal -psession:session.dat -c unseal.key.ctx
+//! tpm2_unseal -psession:session.dat -c $PERM_HANDLE
 //! tpm2_flushcontext session.dat
 //! ```
 
@@ -186,12 +186,19 @@ impl Context {
                 None,
                 None,
                 SessionType::Policy,
-                SymmetricDefinition::AES_128_CFB,
+                //SymmetricDefinition::Null,
+                SymmetricDefinition::AES_256_CFB,
                 HashingAlgorithm::Sha256,
             )?
             .ok_or(TpmError::AuthSessionCreate)?;
+        //let (session_attributes, session_attributes_mask) = SessionAttributes::builder()
+        //.with_decrypt(true)
+        //.with_encrypt(true)
+        //.with_continue_session(true)
+        //.build();
+        //self.tr_sess_set_attributes(session, session_attributes, session_attributes_mask)?;
         // TODO
-        self.policy_pcr(session.try_into()?, digest, pcr_selection_list)?;
+        self.policy_pcr(session.try_into()?, Digest::default(), pcr_selection_list)?;
         Ok(AuthedContext { ctx: self, session })
     }
 
@@ -255,7 +262,7 @@ impl Context {
             out_public: public,
             ..
         } = self.execute_with_nullauth_session(|ctx| {
-            ctx.create_primary(Hierarchy::Endorsement, public, None, None, None, None)
+            ctx.create_primary(Hierarchy::Owner, public, None, None, None, None)
         })?;
 
         Ok(OwnedContext {
@@ -347,7 +354,15 @@ impl Default for PcrPolicyOptions {
     fn default() -> Self {
         use tss_esapi::structures::pcr_slot::PcrSlot;
         let pcr_selection_list = PcrSelectionList::builder()
-            .with_selection(HashingAlgorithm::Sha1, &[PcrSlot::Slot0, PcrSlot::Slot1])
+            .with_selection(
+                HashingAlgorithm::Sha1,
+                &[
+                    PcrSlot::Slot0,
+                    PcrSlot::Slot1,
+                    PcrSlot::Slot2,
+                    PcrSlot::Slot3,
+                ],
+            )
             .build()
             .unwrap();
         Self {
@@ -419,7 +434,11 @@ impl OwnedContext {
             None => self.pcr_digest(&pcr_selection_list, HashingAlgorithm::Sha256)?,
         };
 
-        self.policy_pcr(session.try_into()?, digest, pcr_selection_list.clone())?;
+        self.policy_pcr(
+            session.try_into()?,
+            Digest::default(),
+            pcr_selection_list.clone(),
+        )?;
         let policy_digest = self.policy_get_digest(session.try_into()?)?;
         self.flush_session(session)?;
 
@@ -464,17 +483,20 @@ impl PcrSealedContext {
         let object_attributes = ObjectAttributes::builder()
             .with_fixed_tpm(true)
             .with_fixed_parent(true)
-            .with_sensitive_data_origin(false)
+            //.with_sensitive_data_origin(false)
+            .with_no_da(true)
+            .with_admin_with_policy(true)
             .with_user_with_auth(false)
-            .with_decrypt(false)
-            .with_sign_encrypt(false)
-            .with_restricted(false)
+            //.with_decrypt(false)
+            //.with_sign_encrypt(false)
+            //.with_restricted(false)
             .build()?;
 
         let public = Public::builder()
             .with_public_algorithm(PublicAlgorithm::KeyedHash)
             .with_name_hashing_algorithm(HashingAlgorithm::Sha256)
             .with_object_attributes(object_attributes)
+            .with_auth_policy(Default::default())
             .with_keyed_hash_parameters(PublicKeyedHashParameters::new(
                 //KeyedHashScheme::HMAC_SHA_256,
                 KeyedHashScheme::Null, // according to https://tpm2-tools.readthedocs.io/en/latest/man/tpm2_create.1/
@@ -554,21 +576,56 @@ mod tests {
     }
 
     //https://tpm2-software.github.io/2020/04/13/Disk-Encryption.html#pcr-policy-authentication---access-control-of-sealed-pass-phrase-on-tpm2-with-pcr-sealing
-    #[test]
+    //#[test]
     fn seal() -> Result<()> {
         let data = SensitiveData::try_from("Hello".as_bytes().to_vec())?;
-        let handle = PersistentTpmHandle::new(u32::from_be_bytes([0x81, 0x00, 0x00, 0x01]))?;
+        let handle = PersistentTpmHandle::new(u32::from_be_bytes([0x81, 0x01, 0x00, 0x01]))?;
 
-        Context::new()?
-            .own()?
-            .with_pcr_policy(PcrPolicyOptions::default())?
-            .seal(data.clone(), handle)?;
+        //Context::new()?
+        //.own()?
+        //.with_pcr_policy(PcrPolicyOptions::default())?
+        //.seal(data.clone(), handle)?;
 
         let unsealed = Context::new()?
             .auth(PcrPolicyOptions::default().pcr_selection_list)?
             .unseal(handle)?;
 
         assert_eq!(data, unsealed);
+
+        Ok(())
+    }
+
+    #[test]
+    fn brute() -> Result<()> {
+        let mut context = Context::new()?;
+
+        let data = SensitiveData::try_from("Hello".as_bytes().to_vec())?;
+        let handle = PersistentTpmHandle::new(u32::from_be_bytes([0x81, 0x01, 0x00, 0x01]))?;
+        let object_handle =
+            context.execute_without_session(|ctx| ctx.tr_from_tpm_public(handle.into()))?;
+
+        let session = context
+            .start_auth_session(
+                None,
+                None,
+                None,
+                SessionType::Policy,
+                //SymmetricDefinition::Null,
+                SymmetricDefinition::AES_128_CFB,
+                HashingAlgorithm::Sha256,
+            )?
+            .ok_or(TpmError::AuthSessionCreate)?;
+        //let (session_attributes, session_attributes_mask) = SessionAttributes::builder()
+        //.with_decrypt(true)
+        //.with_encrypt(true)
+        //.with_continue_session(true)
+        //.build();
+        //context.tr_sess_set_attributes(session, session_attributes, session_attributes_mask)?;
+        let pcr_selection_list = PcrPolicyOptions::default().pcr_selection_list;
+        context.policy_pcr(session.try_into()?, Digest::default(), pcr_selection_list)?;
+
+        let data =
+            context.execute_with_session(Some(session), |ctx| ctx.unseal(object_handle.into()))?;
 
         Ok(())
     }
