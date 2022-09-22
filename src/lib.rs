@@ -437,11 +437,7 @@ impl OwnedContext {
             None => self.pcr_digest(&pcr_selection_list, HashingAlgorithm::Sha256)?,
         };
 
-        self.policy_pcr(
-            session.try_into()?,
-            Digest::default(),
-            pcr_selection_list.clone(),
-        )?;
+        self.policy_pcr(session.try_into()?, digest, pcr_selection_list.clone())?;
         let policy_digest = self.policy_get_digest(session.try_into()?)?;
         self.flush_session(session)?;
 
@@ -483,13 +479,14 @@ impl PcrSealedContext {
     pub fn seal(&mut self, data: SensitiveData, handle: PersistentTpmHandle) -> Result<()> {
         let key = self.ctx.key;
 
+        dbg!(&self.policy_digest);
         let object_attributes = ObjectAttributes::builder()
             .with_fixed_tpm(true)
             .with_fixed_parent(true)
             //.with_sensitive_data_origin(false)
-            .with_no_da(true)
-            .with_admin_with_policy(true)
-            .with_user_with_auth(false)
+            //.with_no_da(true)
+            //.with_admin_with_policy(true)
+            //.with_user_with_auth(false)
             //.with_decrypt(false)
             //.with_sign_encrypt(false)
             //.with_restricted(false)
@@ -499,7 +496,7 @@ impl PcrSealedContext {
             .with_public_algorithm(PublicAlgorithm::KeyedHash)
             .with_name_hashing_algorithm(HashingAlgorithm::Sha256)
             .with_object_attributes(object_attributes)
-            .with_auth_policy(Default::default())
+            .with_auth_policy(self.policy_digest.clone())
             .with_keyed_hash_parameters(PublicKeyedHashParameters::new(
                 //KeyedHashScheme::HMAC_SHA_256,
                 KeyedHashScheme::Null, // according to https://tpm2-tools.readthedocs.io/en/latest/man/tpm2_create.1/
@@ -531,7 +528,7 @@ impl PcrSealedContext {
                 out_private,
                 out_public,
                 ..
-            } = ctx.create(key, public, None, Some(data), None, Some(pcrs))?;
+            } = ctx.create(key, public, None, Some(data), None, None)?;
             let transient = ctx.load(key, out_private, out_public)?.into();
             ctx.evict_control(Provision::Owner, transient, Persistent::Persistent(handle))?;
             Ok::<(), TpmError>(())
