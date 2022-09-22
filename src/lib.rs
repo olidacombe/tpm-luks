@@ -103,7 +103,7 @@ static CONTEXT: Lazy<Mutex<tss_esapi::Context>> = Lazy::new(|| {
 
     let context =
         tss_esapi::Context::new(TctiNameConf::from_environment_variable().unwrap()).unwrap();
-    dbg!("NEW CONTEXT");
+    //dbg!("NEW CONTEXT");
     Mutex::new(context)
 });
 
@@ -178,7 +178,7 @@ impl Context {
 
     pub fn auth(mut self, pcr_selection_list: PcrSelectionList) -> Result<AuthedContext> {
         let digest = self.pcr_digest(&pcr_selection_list, HashingAlgorithm::Sha256)?;
-        dbg!(&digest);
+        //dbg!(&digest);
         //let session = self.make_session(SessionType::Policy)?;
         let session = self
             .start_auth_session(
@@ -191,7 +191,7 @@ impl Context {
                 HashingAlgorithm::Sha256,
             )?
             .ok_or(TpmError::AuthSessionCreate)?;
-        dbg!(&session);
+        //dbg!(&session);
         //let (session_attributes, session_attributes_mask) = SessionAttributes::builder()
         //.with_decrypt(true)
         //.with_encrypt(true)
@@ -201,7 +201,7 @@ impl Context {
         // TODO
         self.policy_pcr(session.try_into()?, digest, pcr_selection_list)?;
         let policy_digest = self.policy_get_digest(session.try_into()?)?;
-        dbg!(policy_digest);
+        //dbg!(policy_digest);
         Ok(AuthedContext { ctx: self, session })
     }
 
@@ -510,16 +510,20 @@ impl PcrSealedContext {
 
         //self.flush_transient()?;
         let retrieved_persistent_handle = self
-            .execute_without_session(|ctx| ctx.tr_from_tpm_public(TpmHandle::Persistent(handle)))?;
-        // Evict the persitent handle from the tpm
-        // An authorization session is required!
-        let _ = self.execute_with_session(Some(AuthSession::Password), |ctx| {
-            ctx.evict_control(
-                Provision::Owner,
-                retrieved_persistent_handle,
-                Persistent::Persistent(handle),
-            )
-        })?;
+            .execute_without_session(|ctx| ctx.tr_from_tpm_public(TpmHandle::Persistent(handle)))
+            .ok()
+            .map(|retrieved| {
+                // TODO extract separate method, to test for example that seal works
+                // whether or not the target persistent handle is already occupied
+                // Evict the persitent handle from the tpm
+                // An authorization session is required!
+                // [this](https://docs.rs/tss-esapi/latest/src/tss_esapi/context/tpm_commands/context_management.rs.html#397)
+                // was really helpful
+                self.execute_with_session(Some(AuthSession::Password), |ctx| {
+                    ctx.evict_control(Provision::Owner, retrieved, Persistent::Persistent(handle))
+                })
+                .ok()
+            });
 
         let pcrs = self.pcr_selection_list.clone();
         self.execute_with_session(Some(AuthSession::Password), |ctx| {
@@ -633,6 +637,25 @@ mod tests {
         //.own()?
         //.with_pcr_policy(PcrPolicyOptions::default())?
         //.seal(data.clone(), handle)?;
+
+        let unsealed = Context::new()?
+            .auth(PcrPolicyOptions::default().pcr_selection_list)?
+            .unseal(handle)?;
+
+        assert_eq!(data, unsealed);
+
+        Ok(())
+    }
+
+    #[test]
+    fn seal_unseal() -> Result<()> {
+        let data = SensitiveData::try_from("Howdy".as_bytes().to_vec())?;
+        let handle = PersistentTpmHandle::new(u32::from_be_bytes([0x81, 0x01, 0x00, 0x02]))?;
+
+        Context::new()?
+            .own()?
+            .with_pcr_policy(PcrPolicyOptions::default())?
+            .seal(data.clone(), handle)?;
 
         let unsealed = Context::new()?
             .auth(PcrPolicyOptions::default().pcr_selection_list)?
