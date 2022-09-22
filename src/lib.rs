@@ -575,75 +575,6 @@ mod tests {
     use super::*;
     use eyre::Result;
 
-    //#[test]
-    fn get_revision() -> Result<()> {
-        let mut context = Context::new()?;
-        let revision = context.revision()?;
-        assert!(revision.is_some());
-
-        Ok(())
-    }
-
-    //https://tpm2-software.github.io/2020/04/13/Disk-Encryption.html#pcr-policy-authentication---access-control-of-sealed-pass-phrase-on-tpm2-with-pcr-sealing
-    //#!/usr/bin/env bash
-
-    //set -xeou pipefail
-
-    //PCRS="sha1:0,1,2,3"
-    //PERM_HANDLE=0x81010001
-    //DATA=${1:-Hello}
-    //TPM2=$(dirname $0)/tools/tpm2
-
-    //rm -f   prim.ctx.log \
-    //session.dat \
-    //policy.dat
-
-    //$TPM2 getcap handles-transient
-    //$TPM2 getcap handles-persistent
-    //$TPM2 createprimary -V -C e -g sha256 -G ecc -c prim.ctx | tee prim.ctx.log
-    //$TPM2 getcap handles-transient
-    //$TPM2 getcap handles-persistent
-    //$TPM2 pcrread -V -o pcr.dat $PCRS
-
-    //$TPM2 startauthsession -V -S session.dat
-    //$TPM2 policypcr -V -S session.dat -l $PCRS -f pcr.dat -L policy.dat
-    //$TPM2 flushcontext -V session.dat
-
-    //echo -n "$DATA" | $TPM2 create -V -u key.pub -r key.priv -C prim.ctx -L policy.dat -i-
-    //$TPM2 getcap handles-transient
-    //$TPM2 getcap handles-persistent
-    //$TPM2 flushcontext -V -t
-    //$TPM2 getcap handles-transient
-    //$TPM2 getcap handles-persistent
-    //$TPM2 load -V -C prim.ctx -u key.pub -r key.priv -c loaded.handle -n unseal.key.name
-    //$TPM2 getcap handles-transient
-    //$TPM2 getcap handles-persistent
-
-    //$TPM2 evictcontrol -V -C o -c $PERM_HANDLE
-    //$TPM2 evictcontrol -V -C o -c loaded.handle $PERM_HANDLE
-    //$TPM2 getcap handles-transient
-    //$TPM2 getcap handles-persistent
-
-    #[test]
-    fn unseal() -> Result<()> {
-        let data = SensitiveData::try_from("Hello".as_bytes().to_vec())?;
-        //let handle = PersistentTpmHandle::new(u32::from_be_bytes([0x81, 0x01, 0x00, 0x01]))?;
-        let handle = PersistentTpmHandle::new(u32::from_be_bytes([0x81, 0x01, 0x00, 0x01]))?;
-
-        //Context::new()?
-        //.own()?
-        //.with_pcr_policy(PcrPolicyOptions::default())?
-        //.seal(data.clone(), handle)?;
-
-        let unsealed = Context::new()?
-            .auth(PcrPolicyOptions::default().pcr_selection_list)?
-            .unseal(handle)?;
-
-        assert_eq!(data, unsealed);
-
-        Ok(())
-    }
-
     #[test]
     fn seal_unseal() -> Result<()> {
         let data = SensitiveData::try_from("Howdy".as_bytes().to_vec())?;
@@ -659,41 +590,6 @@ mod tests {
             .unseal(handle)?;
 
         assert_eq!(data, unsealed);
-
-        Ok(())
-    }
-
-    //#[test]
-    fn brute() -> Result<()> {
-        let mut context = Context::new()?;
-
-        let data = SensitiveData::try_from("Hello".as_bytes().to_vec())?;
-        let handle = PersistentTpmHandle::new(u32::from_be_bytes([0x81, 0x01, 0x00, 0x01]))?;
-        let object_handle =
-            context.execute_without_session(|ctx| ctx.tr_from_tpm_public(handle.into()))?;
-
-        let session = context
-            .start_auth_session(
-                None,
-                None,
-                None,
-                SessionType::Policy,
-                //SymmetricDefinition::Null,
-                SymmetricDefinition::AES_128_CFB,
-                HashingAlgorithm::Sha256,
-            )?
-            .ok_or(TpmError::AuthSessionCreate)?;
-        //let (session_attributes, session_attributes_mask) = SessionAttributes::builder()
-        //.with_decrypt(true)
-        //.with_encrypt(true)
-        //.with_continue_session(true)
-        //.build();
-        //context.tr_sess_set_attributes(session, session_attributes, session_attributes_mask)?;
-        let pcr_selection_list = PcrPolicyOptions::default().pcr_selection_list;
-        context.policy_pcr(session.try_into()?, Digest::default(), pcr_selection_list)?;
-
-        let data =
-            context.execute_with_session(Some(session), |ctx| ctx.unseal(object_handle.into()))?;
 
         Ok(())
     }
