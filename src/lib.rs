@@ -50,26 +50,18 @@ use once_cell::sync::Lazy;
 use std::sync::{Mutex, MutexGuard};
 use thiserror::Error;
 use tss_esapi::attributes::ObjectAttributes;
-use tss_esapi::attributes::{SessionAttributes, SessionAttributesBuilder, SessionAttributesMask};
+use tss_esapi::attributes::{SessionAttributes, SessionAttributesMask};
 use tss_esapi::constants::{CapabilityType, SessionType, StartupType};
 use tss_esapi::handles::{KeyHandle, ObjectHandle, PersistentTpmHandle, TpmHandle};
-use tss_esapi::interface_types::algorithm::{
-    HashingAlgorithm, PublicAlgorithm, RsaSchemeAlgorithm,
-};
+use tss_esapi::interface_types::algorithm::{HashingAlgorithm, PublicAlgorithm};
 use tss_esapi::interface_types::dynamic_handles::Persistent;
 use tss_esapi::interface_types::ecc::EccCurve;
-use tss_esapi::interface_types::key_bits::RsaKeyBits;
 use tss_esapi::interface_types::resource_handles::{Hierarchy, Provision};
 use tss_esapi::interface_types::session_handles::{AuthSession, HmacSession, PolicySession};
 use tss_esapi::structures::{
-    Auth, CapabilityData, CreateKeyResult, CreatePrimaryKeyResult, Data, Digest, EccPoint,
-    KeyedHashScheme, MaxBuffer, Nonce, PcrSelectionList, Public, PublicEccParametersBuilder,
-    PublicKeyRsa, PublicKeyedHashParameters, PublicRsaParametersBuilder, RsaExponent, RsaScheme,
-    SensitiveData, SymmetricDefinition, SymmetricDefinitionObject,
-};
-use tss_esapi::utils::{
-    create_restricted_decryption_rsa_public, create_unrestricted_encryption_decryption_rsa_public,
-    create_unrestricted_signing_rsa_public,
+    CapabilityData, CreateKeyResult, CreatePrimaryKeyResult, Digest, EccPoint, KeyedHashScheme,
+    MaxBuffer, Nonce, PcrSelectionList, Public, PublicEccParametersBuilder,
+    PublicKeyedHashParameters, SensitiveData, SymmetricDefinition, SymmetricDefinitionObject,
 };
 
 #[derive(Error, Debug)]
@@ -86,11 +78,9 @@ pub struct Context(MutexGuard<'static, tss_esapi::Context>);
 pub struct OwnedContext {
     ctx: Context,
     key: KeyHandle,
-    public: Public,
 }
 pub struct PcrSealedContext {
     ctx: OwnedContext,
-    pcr_selection_list: PcrSelectionList,
     policy_digest: Digest,
 }
 pub struct AuthedContext {
@@ -110,7 +100,6 @@ static CONTEXT: Lazy<Mutex<tss_esapi::Context>> = Lazy::new(|| {
 impl Context {
     delegate! {
         to self.0 {
-            fn clear_sessions(&mut self);
             fn execute_without_session<F, T>(&mut self, f: F) -> T
             where
                 F: FnOnce(&mut tss_esapi::Context) -> T;
@@ -178,30 +167,8 @@ impl Context {
 
     pub fn auth(mut self, pcr_selection_list: PcrSelectionList) -> Result<AuthedContext> {
         let digest = self.pcr_digest(&pcr_selection_list, HashingAlgorithm::Sha256)?;
-        //dbg!(&digest);
-        //let session = self.make_session(SessionType::Policy)?;
-        let session = self
-            .start_auth_session(
-                None,
-                None,
-                None,
-                SessionType::Policy,
-                //SymmetricDefinition::Null,
-                SymmetricDefinition::AES_128_CFB,
-                HashingAlgorithm::Sha256,
-            )?
-            .ok_or(TpmError::AuthSessionCreate)?;
-        //dbg!(&session);
-        //let (session_attributes, session_attributes_mask) = SessionAttributes::builder()
-        //.with_decrypt(true)
-        //.with_encrypt(true)
-        //.with_continue_session(true)
-        //.build();
-        //self.tr_sess_set_attributes(session, session_attributes, session_attributes_mask)?;
-        // TODO
+        let session = self.make_session(SessionType::Policy)?;
         self.policy_pcr(session.try_into()?, digest, pcr_selection_list)?;
-        let policy_digest = self.policy_get_digest(session.try_into()?)?;
-        //dbg!(policy_digest);
         Ok(AuthedContext { ctx: self, session })
     }
 
@@ -261,29 +228,21 @@ impl Context {
             .build()?;
 
         let CreatePrimaryKeyResult {
-            key_handle: key,
-            out_public: public,
-            ..
+            key_handle: key, ..
         } = self.execute_with_nullauth_session(|ctx| {
             ctx.create_primary(Hierarchy::Owner, public, None, None, None, None)
         })?;
 
-        Ok(OwnedContext {
-            ctx: self,
-            key,
-            public,
-        })
+        Ok(OwnedContext { ctx: self, key })
     }
 
     fn flush_session(&mut self, session: AuthSession) -> Result<()> {
         let handle = match session {
             AuthSession::HmacSession(session) => match session {
                 HmacSession::HmacSession { session_handle, .. } => Some(session_handle.into()),
-                _ => None,
             },
             AuthSession::PolicySession(session) => match session {
                 PolicySession::PolicySession { session_handle, .. } => Some(session_handle.into()),
-                _ => None,
             },
             _ => None,
         };
@@ -378,10 +337,6 @@ impl Default for PcrPolicyOptions {
 impl OwnedContext {
     delegate! {
         to self.ctx {
-            fn execute_with_nullauth_session<F, T, E>(&mut self, f: F) -> Result<T, E>
-            where
-                F: FnOnce(&mut tss_esapi::Context) -> Result<T, E>,
-                E: From<tss_esapi::Error>;
             fn execute_with_session<F, T>(
                 &mut self,
                 session_handle: Option<AuthSession>,
@@ -392,7 +347,6 @@ impl OwnedContext {
             fn execute_without_session<F, T>(&mut self, f: F) -> T
             where
                 F: FnOnce(&mut tss_esapi::Context) -> T;
-            fn flush_context(&mut self, handle: ObjectHandle) -> tss_esapi::Result<()>;
             fn flush_session(&mut self, session: AuthSession) -> Result<()>;
             fn flush_transient(&mut self) -> Result<()>;
             fn make_session(&mut self, t: SessionType) -> Result<AuthSession>;
@@ -406,21 +360,6 @@ impl OwnedContext {
                 policy_session: PolicySession,
                 pcr_policy_digest: Digest,
                 pcr_selection_list: PcrSelectionList
-            ) -> tss_esapi::Result<()>;
-            fn start_auth_session(
-                &mut self,
-                tpm_key: Option<KeyHandle>,
-                bind: Option<ObjectHandle>,
-                nonce: Option<Nonce>,
-                session_type: SessionType,
-                symmetric: SymmetricDefinition,
-                auth_hash: HashingAlgorithm
-            ) -> tss_esapi::Result<Option<AuthSession>>;
-            fn tr_sess_set_attributes(
-                &mut self,
-                session: AuthSession,
-                attributes: SessionAttributes,
-                mask: SessionAttributesMask
             ) -> tss_esapi::Result<()>;
         }
     }
@@ -443,7 +382,6 @@ impl OwnedContext {
 
         Ok(PcrSealedContext {
             ctx: self,
-            pcr_selection_list,
             policy_digest,
         })
     }
@@ -452,10 +390,6 @@ impl OwnedContext {
 impl PcrSealedContext {
     delegate! {
         to self.ctx {
-            fn execute_with_nullauth_session<F, T, E>(&mut self, f: F) -> Result<T, E>
-            where
-                F: FnOnce(&mut tss_esapi::Context) -> Result<T, E>,
-                E: From<tss_esapi::Error>;
             fn execute_with_session<F, T>(
                 &mut self,
                 session_handle: Option<AuthSession>,
@@ -466,13 +400,7 @@ impl PcrSealedContext {
             fn execute_without_session<F, T>(&mut self, f: F) -> T
             where
                 F: FnOnce(&mut tss_esapi::Context) -> T;
-            fn flush_session(&mut self, session: AuthSession) -> Result<()>;
             fn flush_transient(&mut self) -> Result<()>;
-            fn policy_get_digest(
-                &mut self,
-                policy_session: PolicySession
-            ) -> tss_esapi::Result<Digest>;
-            fn make_session(&mut self, t: SessionType) -> Result<AuthSession>;
         }
     }
 
@@ -483,13 +411,6 @@ impl PcrSealedContext {
         let object_attributes = ObjectAttributes::builder()
             .with_fixed_tpm(true)
             .with_fixed_parent(true)
-            //.with_sensitive_data_origin(false)
-            //.with_no_da(true)
-            //.with_admin_with_policy(true)
-            //.with_user_with_auth(false)
-            //.with_decrypt(false)
-            //.with_sign_encrypt(false)
-            //.with_restricted(false)
             .build()?;
 
         let public = Public::builder()
@@ -498,16 +419,12 @@ impl PcrSealedContext {
             .with_object_attributes(object_attributes)
             .with_auth_policy(self.policy_digest.clone())
             .with_keyed_hash_parameters(PublicKeyedHashParameters::new(
-                //KeyedHashScheme::HMAC_SHA_256,
                 KeyedHashScheme::Null, // according to https://tpm2-tools.readthedocs.io/en/latest/man/tpm2_create.1/
             ))
-            // TODO properly somehow?
             .with_keyed_hash_unique_identifier(Digest::default())
             .build()?;
 
-        //self.flush_transient()?;
-        let retrieved_persistent_handle = self
-            .execute_without_session(|ctx| ctx.tr_from_tpm_public(TpmHandle::Persistent(handle)))
+        self.execute_without_session(|ctx| ctx.tr_from_tpm_public(TpmHandle::Persistent(handle)))
             .ok()
             .map(|retrieved| {
                 // TODO extract separate method, to test for example that seal works
@@ -522,7 +439,6 @@ impl PcrSealedContext {
                 .ok()
             });
 
-        let pcrs = self.pcr_selection_list.clone();
         self.execute_with_session(Some(AuthSession::Password), |ctx| {
             let CreateKeyResult {
                 out_private,
@@ -533,6 +449,8 @@ impl PcrSealedContext {
             ctx.evict_control(Provision::Owner, transient, Persistent::Persistent(handle))?;
             Ok::<(), TpmError>(())
         })?;
+        // TODO get rid of this?
+        self.flush_transient().ok();
         Ok(())
     }
 }
@@ -550,7 +468,6 @@ impl AuthedContext {
             fn execute_without_session<F, T>(&mut self, f: F) -> T
             where
                 F: FnOnce(&mut tss_esapi::Context) -> T;
-            fn flush_transient(&mut self) -> Result<()>;
         }
     }
 
