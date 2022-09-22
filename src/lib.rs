@@ -176,7 +176,7 @@ impl Context {
         Ok(())
     }
 
-    fn auth(mut self, pcr_selection_list: PcrSelectionList) -> Result<AuthedContext> {
+    pub fn auth(mut self, pcr_selection_list: PcrSelectionList) -> Result<AuthedContext> {
         let digest = self.pcr_digest(&pcr_selection_list, HashingAlgorithm::Sha256)?;
         dbg!(&digest);
         //let session = self.make_session(SessionType::Policy)?;
@@ -187,10 +187,11 @@ impl Context {
                 None,
                 SessionType::Policy,
                 //SymmetricDefinition::Null,
-                SymmetricDefinition::AES_256_CFB,
+                SymmetricDefinition::AES_128_CFB,
                 HashingAlgorithm::Sha256,
             )?
             .ok_or(TpmError::AuthSessionCreate)?;
+        dbg!(&session);
         //let (session_attributes, session_attributes_mask) = SessionAttributes::builder()
         //.with_decrypt(true)
         //.with_encrypt(true)
@@ -198,7 +199,9 @@ impl Context {
         //.build();
         //self.tr_sess_set_attributes(session, session_attributes, session_attributes_mask)?;
         // TODO
-        self.policy_pcr(session.try_into()?, Digest::default(), pcr_selection_list)?;
+        self.policy_pcr(session.try_into()?, digest, pcr_selection_list)?;
+        let policy_digest = self.policy_get_digest(session.try_into()?)?;
+        dbg!(policy_digest);
         Ok(AuthedContext { ctx: self, session })
     }
 
@@ -340,7 +343,7 @@ impl Drop for AuthedContext {
 
 pub struct PcrPolicyOptions {
     digest: Option<Digest>,
-    pcr_selection_list: PcrSelectionList,
+    pub pcr_selection_list: PcrSelectionList,
 }
 
 impl PcrPolicyOptions {
@@ -552,10 +555,15 @@ impl AuthedContext {
 
     pub fn unseal(mut self, handle: PersistentTpmHandle) -> Result<SensitiveData> {
         //return Ok(SensitiveData::try_from("Schmello".as_bytes().to_vec())?);
+        //let object_handle = self.execute_with_session(Some(self.session), |ctx| {
+        //ctx.tr_from_tpm_public(handle.into())
+        //})?;
         let object_handle =
             self.execute_without_session(|ctx| ctx.tr_from_tpm_public(handle.into()))?;
+        //let object_handle = ObjectHandle::from(u32::from_be_bytes([0x81, 0x01, 0x00, 0x01]));
+        dbg!(object_handle);
         let data =
-            self.execute_with_session(Some(self.session), |ctx| ctx.unseal(object_handle.into()))?;
+            self.execute_with_session(Some(self.session), |ctx| ctx.unseal(object_handle))?;
         // TODO extend
         Ok(data)
     }
@@ -576,9 +584,49 @@ mod tests {
     }
 
     //https://tpm2-software.github.io/2020/04/13/Disk-Encryption.html#pcr-policy-authentication---access-control-of-sealed-pass-phrase-on-tpm2-with-pcr-sealing
-    //#[test]
-    fn seal() -> Result<()> {
+    //#!/usr/bin/env bash
+
+    //set -xeou pipefail
+
+    //PCRS="sha1:0,1,2,3"
+    //PERM_HANDLE=0x81010001
+    //DATA=${1:-Hello}
+    //TPM2=$(dirname $0)/tools/tpm2
+
+    //rm -f   prim.ctx.log \
+    //session.dat \
+    //policy.dat
+
+    //$TPM2 getcap handles-transient
+    //$TPM2 getcap handles-persistent
+    //$TPM2 createprimary -V -C e -g sha256 -G ecc -c prim.ctx | tee prim.ctx.log
+    //$TPM2 getcap handles-transient
+    //$TPM2 getcap handles-persistent
+    //$TPM2 pcrread -V -o pcr.dat $PCRS
+
+    //$TPM2 startauthsession -V -S session.dat
+    //$TPM2 policypcr -V -S session.dat -l $PCRS -f pcr.dat -L policy.dat
+    //$TPM2 flushcontext -V session.dat
+
+    //echo -n "$DATA" | $TPM2 create -V -u key.pub -r key.priv -C prim.ctx -L policy.dat -i-
+    //$TPM2 getcap handles-transient
+    //$TPM2 getcap handles-persistent
+    //$TPM2 flushcontext -V -t
+    //$TPM2 getcap handles-transient
+    //$TPM2 getcap handles-persistent
+    //$TPM2 load -V -C prim.ctx -u key.pub -r key.priv -c loaded.handle -n unseal.key.name
+    //$TPM2 getcap handles-transient
+    //$TPM2 getcap handles-persistent
+
+    //$TPM2 evictcontrol -V -C o -c $PERM_HANDLE
+    //$TPM2 evictcontrol -V -C o -c loaded.handle $PERM_HANDLE
+    //$TPM2 getcap handles-transient
+    //$TPM2 getcap handles-persistent
+
+    #[test]
+    fn unseal() -> Result<()> {
         let data = SensitiveData::try_from("Hello".as_bytes().to_vec())?;
+        //let handle = PersistentTpmHandle::new(u32::from_be_bytes([0x81, 0x01, 0x00, 0x01]))?;
         let handle = PersistentTpmHandle::new(u32::from_be_bytes([0x81, 0x01, 0x00, 0x01]))?;
 
         //Context::new()?
@@ -595,7 +643,7 @@ mod tests {
         Ok(())
     }
 
-    #[test]
+    //#[test]
     fn brute() -> Result<()> {
         let mut context = Context::new()?;
 
