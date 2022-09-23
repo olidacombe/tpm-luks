@@ -483,6 +483,7 @@ impl AuthedContext {
             where
                 F: FnOnce(&mut tss_esapi::Context) -> T;
             fn flush_session(&mut self, session: AuthSession) -> Result<()>;
+            fn get_random(&mut self, num_bytes: usize) -> tss_esapi::Result<Digest>;
             fn make_session(&mut self, t: SessionType) -> Result<AuthSession>;
         }
     }
@@ -499,18 +500,11 @@ impl AuthedContext {
                     })
             })
             .ok_or(TpmError::EmptyPcrSelectionList)?;
-        // TODO
-        let random_digest_sha1 = Digest::try_from(vec![
-            1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20,
-        ])?;
-        let random_digest_sha256 = Digest::try_from(vec![
-            1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24,
-            25, 26, 27, 28, 29, 30, 31, 32,
-        ])?;
+        let random_digest_sha1 = self.get_random(20)?.into();
+        let random_digest_sha256 = self.get_random(32)?.into();
         let mut vals = DigestValues::new();
         vals.set(HashingAlgorithm::Sha1, random_digest_sha1);
         vals.set(HashingAlgorithm::Sha256, random_digest_sha256);
-        //dbg!(&vals);
         let session = self.make_session(SessionType::Hmac)?;
         self.execute_with_session(Some(session), |ctx| ctx.pcr_extend(pcr_handle, vals))?;
 
