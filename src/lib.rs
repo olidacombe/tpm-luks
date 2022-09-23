@@ -52,22 +52,25 @@ use thiserror::Error;
 use tss_esapi::attributes::ObjectAttributes;
 use tss_esapi::attributes::{SessionAttributes, SessionAttributesMask};
 use tss_esapi::constants::{CapabilityType, SessionType, StartupType};
-use tss_esapi::handles::{KeyHandle, ObjectHandle, PersistentTpmHandle, TpmHandle};
+use tss_esapi::handles::{KeyHandle, ObjectHandle, PcrHandle, PersistentTpmHandle, TpmHandle};
 use tss_esapi::interface_types::algorithm::{HashingAlgorithm, PublicAlgorithm};
 use tss_esapi::interface_types::dynamic_handles::Persistent;
 use tss_esapi::interface_types::ecc::EccCurve;
 use tss_esapi::interface_types::resource_handles::{Hierarchy, Provision};
 use tss_esapi::interface_types::session_handles::{AuthSession, HmacSession, PolicySession};
 use tss_esapi::structures::{
-    CapabilityData, CreateKeyResult, CreatePrimaryKeyResult, Digest, EccPoint, KeyedHashScheme,
-    MaxBuffer, Nonce, PcrSelectionList, Public, PublicEccParametersBuilder,
-    PublicKeyedHashParameters, SensitiveData, SymmetricDefinition, SymmetricDefinitionObject,
+    CapabilityData, CreateKeyResult, CreatePrimaryKeyResult, Digest, DigestValues, EccPoint,
+    KeyedHashScheme, MaxBuffer, Nonce, PcrSelectionList, PcrSlot, Public,
+    PublicEccParametersBuilder, PublicKeyedHashParameters, SensitiveData, SymmetricDefinition,
+    SymmetricDefinitionObject,
 };
 
 #[derive(Error, Debug)]
 pub enum TpmError {
     #[error("failed to create auth session")]
     AuthSessionCreate,
+    #[error("empty PCR selection list, expected at least on selection")]
+    EmptyPcrSelectionList,
     #[error(transparent)]
     TssEsapi(#[from] tss_esapi::Error),
 }
@@ -86,6 +89,7 @@ pub struct PcrSealedContext {
 pub struct AuthedContext {
     ctx: Context,
     session: AuthSession,
+    pcr_selection_list: PcrSelectionList,
 }
 
 static CONTEXT: Lazy<Mutex<tss_esapi::Context>> = Lazy::new(|| {
@@ -93,9 +97,12 @@ static CONTEXT: Lazy<Mutex<tss_esapi::Context>> = Lazy::new(|| {
 
     let context =
         tss_esapi::Context::new(TctiNameConf::from_environment_variable().unwrap()).unwrap();
-    //dbg!("NEW CONTEXT");
     Mutex::new(context)
 });
+
+fn pcr_slot_to_handle(slot: &PcrSlot) -> PcrHandle {
+    PcrHandle::Pcr0
+}
 
 impl Context {
     delegate! {
@@ -159,6 +166,7 @@ impl Context {
                 _ => None,
             }) {
                 let handle = self.execute_without_session(|ctx| ctx.tr_from_tpm_public(handle))?;
+                dbg!(handle);
                 self.flush_context(handle).ok();
             }
         }
@@ -168,8 +176,12 @@ impl Context {
     pub fn auth(mut self, pcr_selection_list: PcrSelectionList) -> Result<AuthedContext> {
         let digest = self.pcr_digest(&pcr_selection_list, HashingAlgorithm::Sha256)?;
         let session = self.make_session(SessionType::Policy)?;
-        self.policy_pcr(session.try_into()?, digest, pcr_selection_list)?;
-        Ok(AuthedContext { ctx: self, session })
+        self.policy_pcr(session.try_into()?, digest, pcr_selection_list.clone())?;
+        Ok(AuthedContext {
+            ctx: self,
+            session,
+            pcr_selection_list,
+        })
     }
 
     fn make_session(&mut self, t: SessionType) -> Result<AuthSession> {
@@ -232,6 +244,7 @@ impl Context {
         } = self.execute_with_nullauth_session(|ctx| {
             ctx.create_primary(Hierarchy::Owner, public, None, None, None, None)
         })?;
+        self.flush_transient().ok();
 
         Ok(OwnedContext { ctx: self, key })
     }
@@ -290,13 +303,14 @@ impl Context {
 // TODO acknowlege this does nothing useful?
 impl Drop for Context {
     fn drop(&mut self) {
+        self.flush_transient().ok();
         self.0.clear_sessions();
     }
 }
 
 impl Drop for AuthedContext {
     fn drop(&mut self) {
-        self.ctx.flush_session(self.session).ok();
+        self.flush_session(self.session).ok();
     }
 }
 
@@ -314,7 +328,6 @@ impl PcrPolicyOptions {
 
 impl Default for PcrPolicyOptions {
     fn default() -> Self {
-        use tss_esapi::structures::pcr_slot::PcrSlot;
         let pcr_selection_list = PcrSelectionList::builder()
             .with_selection(
                 HashingAlgorithm::Sha1,
@@ -404,10 +417,9 @@ impl PcrSealedContext {
         }
     }
 
-    pub fn seal(&mut self, data: SensitiveData, handle: PersistentTpmHandle) -> Result<()> {
+    pub fn seal(mut self, data: SensitiveData, handle: PersistentTpmHandle) -> Result<()> {
         let key = self.ctx.key;
 
-        dbg!(&self.policy_digest);
         let object_attributes = ObjectAttributes::builder()
             .with_fixed_tpm(true)
             .with_fixed_parent(true)
@@ -438,6 +450,7 @@ impl PcrSealedContext {
                 })
                 .ok()
             });
+        self.flush_transient().ok();
 
         self.execute_with_session(Some(AuthSession::Password), |ctx| {
             let CreateKeyResult {
@@ -449,8 +462,6 @@ impl PcrSealedContext {
             ctx.evict_control(Provision::Owner, transient, Persistent::Persistent(handle))?;
             Ok::<(), TpmError>(())
         })?;
-        // TODO get rid of this?
-        self.flush_transient().ok();
         Ok(())
     }
 }
@@ -468,7 +479,39 @@ impl AuthedContext {
             fn execute_without_session<F, T>(&mut self, f: F) -> T
             where
                 F: FnOnce(&mut tss_esapi::Context) -> T;
+            fn flush_session(&mut self, session: AuthSession) -> Result<()>;
+            fn make_session(&mut self, t: SessionType) -> Result<AuthSession>;
         }
+    }
+
+    fn extend(&mut self, pcr_handle: Option<PcrHandle>) -> Result<()> {
+        let pcr_handle = pcr_handle
+            .or_else(|| {
+                self.pcr_selection_list
+                    .get_selections()
+                    .iter()
+                    .find_map(|s| match s.is_empty() {
+                        true => None,
+                        false => s.selected().first().map(pcr_slot_to_handle),
+                    })
+            })
+            .ok_or(TpmError::EmptyPcrSelectionList)?;
+        // TODO
+        let random_digest_sha1 = Digest::try_from(vec![
+            1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20,
+        ])?;
+        let random_digest_sha256 = Digest::try_from(vec![
+            1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24,
+            25, 26, 27, 28, 29, 30, 31, 32,
+        ])?;
+        let mut vals = DigestValues::new();
+        vals.set(HashingAlgorithm::Sha1, random_digest_sha1);
+        vals.set(HashingAlgorithm::Sha256, random_digest_sha256);
+        //dbg!(&vals);
+        let session = self.make_session(SessionType::Hmac)?;
+        self.execute_with_session(Some(session), |ctx| ctx.pcr_extend(pcr_handle, vals))?;
+
+        Ok(())
     }
 
     pub fn unseal(mut self, handle: PersistentTpmHandle) -> Result<SensitiveData> {
@@ -479,10 +522,11 @@ impl AuthedContext {
         let object_handle =
             self.execute_without_session(|ctx| ctx.tr_from_tpm_public(handle.into()))?;
         //let object_handle = ObjectHandle::from(u32::from_be_bytes([0x81, 0x01, 0x00, 0x01]));
-        dbg!(object_handle);
         let data =
             self.execute_with_session(Some(self.session), |ctx| ctx.unseal(object_handle))?;
+        //self.flush_session(self.session)?;
         // TODO extend
+        self.extend(None)?;
         Ok(data)
     }
 }
@@ -492,8 +536,27 @@ mod tests {
     use super::*;
     use eyre::Result;
 
-    #[test]
+    //#[test]
     fn seal_unseal() -> Result<()> {
+        let data = SensitiveData::try_from("Howdy".as_bytes().to_vec())?;
+        let handle = PersistentTpmHandle::new(u32::from_be_bytes([0x81, 0x01, 0x00, 0x01]))?;
+
+        Context::new()?
+            .own()?
+            .with_pcr_policy(PcrPolicyOptions::default())?
+            .seal(data.clone(), handle)?;
+
+        let unsealed = Context::new()?
+            .auth(PcrPolicyOptions::default().pcr_selection_list)?
+            .unseal(handle)?;
+
+        assert_eq!(data, unsealed);
+
+        Ok(())
+    }
+
+    #[test]
+    fn no_unseal_twice() -> Result<()> {
         let data = SensitiveData::try_from("Howdy".as_bytes().to_vec())?;
         let handle = PersistentTpmHandle::new(u32::from_be_bytes([0x81, 0x01, 0x00, 0x02]))?;
 
@@ -507,6 +570,12 @@ mod tests {
             .unseal(handle)?;
 
         assert_eq!(data, unsealed);
+
+        let should_fail = Context::new()?
+            .auth(PcrPolicyOptions::default().pcr_selection_list)?
+            .unseal(handle);
+
+        assert!(should_fail.is_err());
 
         Ok(())
     }
