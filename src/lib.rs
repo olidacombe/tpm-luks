@@ -204,6 +204,7 @@ impl Context {
                 })
                 .ok()
             });
+        self.flush_transient().ok();
     }
 
     fn flush_transient(&mut self) -> Result<()> {
@@ -214,7 +215,6 @@ impl Context {
                 _ => None,
             }) {
                 let handle = self.execute_without_session(|ctx| ctx.tr_from_tpm_public(handle))?;
-                dbg!(handle);
                 self.flush_context(handle).ok();
             }
         }
