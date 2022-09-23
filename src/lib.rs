@@ -191,6 +191,21 @@ impl Context {
         }
     }
 
+    pub fn evict_persistent(&mut self, handle: PersistentTpmHandle) {
+        self.execute_without_session(|ctx| ctx.tr_from_tpm_public(TpmHandle::Persistent(handle)))
+            .ok()
+            .map(|retrieved| {
+                // Evict the persitent handle from the tpm
+                // An authorization session is required!
+                // [this](https://docs.rs/tss-esapi/latest/src/tss_esapi/context/tpm_commands/context_management.rs.html#397)
+                // was really helpful
+                self.execute_with_session(Some(AuthSession::Password), |ctx| {
+                    ctx.evict_control(Provision::Owner, retrieved, Persistent::Persistent(handle))
+                })
+                .ok()
+            });
+    }
+
     fn flush_transient(&mut self) -> Result<()> {
         let (capabilities, _) = self.get_capability(CapabilityType::Handles, 0, 80)?;
         if let CapabilityData::Handles(handles) = capabilities {
@@ -268,7 +283,6 @@ impl Context {
                 )
                 .build()?,
             )
-            // TODO check we're doing something proper here
             .with_ecc_unique_identifier(EccPoint::default())
             .build()?;
 
@@ -333,14 +347,6 @@ impl Context {
     }
 }
 
-// TODO acknowlege this does nothing useful?
-impl Drop for Context {
-    fn drop(&mut self) {
-        self.flush_transient().ok();
-        self.0.clear_sessions();
-    }
-}
-
 impl Drop for AuthedContext {
     fn drop(&mut self) {
         self.flush_session(self.session).ok();
@@ -383,6 +389,7 @@ impl Default for PcrPolicyOptions {
 impl OwnedContext {
     delegate! {
         to self.ctx {
+            fn evict_persistent(&mut self, handle: PersistentTpmHandle);
             fn execute_with_session<F, T>(
                 &mut self,
                 session_handle: Option<AuthSession>,
@@ -390,11 +397,7 @@ impl OwnedContext {
             ) -> T
             where
                 F: FnOnce(&mut tss_esapi::Context) -> T;
-            fn execute_without_session<F, T>(&mut self, f: F) -> T
-            where
-                F: FnOnce(&mut tss_esapi::Context) -> T;
             fn flush_session(&mut self, session: AuthSession) -> Result<()>;
-            fn flush_transient(&mut self) -> Result<()>;
             fn make_session(&mut self, t: SessionType) -> Result<AuthSession>;
             fn pcr_digest(&mut self, pcr_selection_list: &PcrSelectionList, hashing_algorithm: HashingAlgorithm) -> Result<Digest>;
             fn policy_get_digest(
@@ -436,6 +439,7 @@ impl OwnedContext {
 impl PcrSealedContext {
     delegate! {
         to self.ctx {
+            fn evict_persistent(&mut self, handle: PersistentTpmHandle);
             fn execute_with_session<F, T>(
                 &mut self,
                 session_handle: Option<AuthSession>,
@@ -443,10 +447,6 @@ impl PcrSealedContext {
             ) -> T
             where
             F: FnOnce(&mut tss_esapi::Context) -> T;
-            fn execute_without_session<F, T>(&mut self, f: F) -> T
-            where
-                F: FnOnce(&mut tss_esapi::Context) -> T;
-            fn flush_transient(&mut self) -> Result<()>;
         }
     }
 
@@ -469,21 +469,7 @@ impl PcrSealedContext {
             .with_keyed_hash_unique_identifier(Digest::default())
             .build()?;
 
-        self.execute_without_session(|ctx| ctx.tr_from_tpm_public(TpmHandle::Persistent(handle)))
-            .ok()
-            .map(|retrieved| {
-                // TODO extract separate method, to test for example that seal works
-                // whether or not the target persistent handle is already occupied
-                // Evict the persitent handle from the tpm
-                // An authorization session is required!
-                // [this](https://docs.rs/tss-esapi/latest/src/tss_esapi/context/tpm_commands/context_management.rs.html#397)
-                // was really helpful
-                self.execute_with_session(Some(AuthSession::Password), |ctx| {
-                    ctx.evict_control(Provision::Owner, retrieved, Persistent::Persistent(handle))
-                })
-                .ok()
-            });
-        self.flush_transient().ok();
+        self.evict_persistent(handle.clone());
 
         self.execute_with_session(Some(AuthSession::Password), |ctx| {
             let CreateKeyResult {
