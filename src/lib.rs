@@ -459,8 +459,10 @@ impl PcrSealedContext {
                 ..
             } = ctx.create(key, public, None, Some(data), None, None)?;
             let transient = ctx.load(key, out_private, out_public)?.into();
-            ctx.evict_control(Provision::Owner, transient, Persistent::Persistent(handle))?;
+            let mut persistent =
+                ctx.evict_control(Provision::Owner, transient, Persistent::Persistent(handle))?;
             ctx.flush_context(transient)?;
+            ctx.tr_close(&mut persistent)?;
             Ok::<(), TpmError>(())
         })?;
         Ok(())
@@ -520,7 +522,6 @@ impl AuthedContext {
             self.execute_without_session(|ctx| ctx.tr_from_tpm_public(handle.into()))?;
         let data =
             self.execute_with_session(Some(self.session), |ctx| ctx.unseal(object_handle))?;
-        //self.flush_session(self.session)?;
         self.extend(None)?;
         Ok(data)
     }
