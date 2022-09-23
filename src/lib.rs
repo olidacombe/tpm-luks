@@ -460,6 +460,7 @@ impl PcrSealedContext {
             } = ctx.create(key, public, None, Some(data), None, None)?;
             let transient = ctx.load(key, out_private, out_public)?.into();
             ctx.evict_control(Provision::Owner, transient, Persistent::Persistent(handle))?;
+            ctx.flush_context(transient)?;
             Ok::<(), TpmError>(())
         })?;
         Ok(())
@@ -515,17 +516,11 @@ impl AuthedContext {
     }
 
     pub fn unseal(mut self, handle: PersistentTpmHandle) -> Result<SensitiveData> {
-        //return Ok(SensitiveData::try_from("Schmello".as_bytes().to_vec())?);
-        //let object_handle = self.execute_with_session(Some(self.session), |ctx| {
-        //ctx.tr_from_tpm_public(handle.into())
-        //})?;
         let object_handle =
             self.execute_without_session(|ctx| ctx.tr_from_tpm_public(handle.into()))?;
-        //let object_handle = ObjectHandle::from(u32::from_be_bytes([0x81, 0x01, 0x00, 0x01]));
         let data =
             self.execute_with_session(Some(self.session), |ctx| ctx.unseal(object_handle))?;
         //self.flush_session(self.session)?;
-        // TODO extend
         self.extend(None)?;
         Ok(data)
     }
@@ -536,7 +531,7 @@ mod tests {
     use super::*;
     use eyre::Result;
 
-    //#[test]
+    #[test]
     fn seal_unseal() -> Result<()> {
         let data = SensitiveData::try_from("Howdy".as_bytes().to_vec())?;
         let handle = PersistentTpmHandle::new(u32::from_be_bytes([0x81, 0x01, 0x00, 0x01]))?;
