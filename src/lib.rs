@@ -476,7 +476,22 @@ impl PcrSealedContext {
             .with_keyed_hash_unique_identifier(Digest::default())
             .build()?;
 
-        self.evict_persistent(handle.clone());
+        //self.evict_persistent(handle.clone());
+        self.ctx
+            .ctx
+            .execute_without_session(|ctx| ctx.tr_from_tpm_public(TpmHandle::Persistent(handle)))
+            .ok()
+            .map(|retrieved| {
+                // Evict the persitent handle from the tpm
+                // An authorization session is required!
+                // [this](https://docs.rs/tss-esapi/latest/src/tss_esapi/context/tpm_commands/context_management.rs.html#397)
+                // was really helpful
+                self.execute_with_session(Some(AuthSession::Password), |ctx| {
+                    ctx.evict_control(Provision::Owner, retrieved, Persistent::Persistent(handle))
+                })
+                .ok()
+            });
+        self.ctx.ctx.flush_transient().ok();
 
         self.execute_with_session(Some(AuthSession::Password), |ctx| {
             let CreateKeyResult {
