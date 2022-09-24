@@ -210,10 +210,11 @@ impl Context {
     fn flush_transient(&mut self) -> Result<()> {
         let (capabilities, _) = self.get_capability(CapabilityType::Handles, 0, 80)?;
         if let CapabilityData::Handles(handles) = capabilities {
-            for handle in handles.into_inner().into_iter().filter_map(|h| match h {
-                TpmHandle::Transient(_) => Some(h),
-                _ => None,
-            }) {
+            for handle in handles
+                .into_inner()
+                .into_iter()
+                .filter(|h| matches!(h, TpmHandle::Transient(_)))
+            {
                 let handle = self.execute_without_session(|ctx| ctx.tr_from_tpm_public(handle))?;
                 self.flush_context(handle).ok();
             }
@@ -527,8 +528,8 @@ impl AuthedContext {
                     })
             })
             .ok_or(TpmError::EmptyPcrSelectionList)?;
-        let random_digest_sha1 = self.get_random(20)?.into();
-        let random_digest_sha256 = self.get_random(32)?.into();
+        let random_digest_sha1 = self.get_random(20)?;
+        let random_digest_sha256 = self.get_random(32)?;
         let mut vals = DigestValues::new();
         vals.set(HashingAlgorithm::Sha1, random_digest_sha1);
         vals.set(HashingAlgorithm::Sha256, random_digest_sha256);
