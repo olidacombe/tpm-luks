@@ -347,6 +347,13 @@ impl Context {
     }
 }
 
+impl Drop for Context {
+    fn drop(&mut self) {
+        self.flush_transient().ok();
+        self.0.clear_sessions();
+    }
+}
+
 impl Drop for AuthedContext {
     fn drop(&mut self) {
         self.flush_session(self.session).ok();
