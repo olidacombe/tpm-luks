@@ -2,18 +2,49 @@
 
 ## Get Started
 
+### On Linux with hardware TPM:
 ```bash
-# at basecamp
-fswatch -o . | xargs -n1 -I{} ./sync.sh {machine:dir}
-# on remote (e.g. Metal) machine
-# TCTI=device:/dev/tpm0 cargo watch -x "test -- --nocapture"
-mkdir /tmp/mytpm
-chown tss:root /tmp/mytpm
-swtpm_setup --overwrite --tpmstate /tmp/mytpm/ --create-ek-cert --create-platform-cert --tpm2 \
---lock-nvram
-swtpm socket --tpmstate dir=/tmp/mytpm --tpm2 --ctrl type=tcp,port=2322 --log level=20 --server type=tcp,port=2321
-tpm2_startup --tcti swtpm -c
-TCTI=swtpm:port=2321,host=127.0.0.1  cargo watch -x "test -- --nocapture"
+make dev-local
+```
+
+### On something else, e.g. Mac:
+```bash
+make dev
+```
+
+> I'm currently just trying to re-enact this:
+```bash
+#!/usr/bin/env bash
+
+set -xeou pipefail
+
+PCRS="sha1:0,1,2,3"
+PERM_HANDLE=0x81010001
+
+docker kill swtpm || true
+docker run -d --rm --name swtpm -p 2321:2321 -p 2322:2322 olidacombe/swtpm
+sleep 2
+
+rm -f   prim.ctx.log \
+        session.dat \
+        policy.dat
+
+tpm2_createprimary -C e -g sha256 -G ecc -c prim.ctx | tee prim.ctx.log
+tpm2_pcrread -o pcr.dat $PCRS
+
+tpm2_startauthsession -S session.dat
+tpm2_policypcr -S session.dat -l $PCRS -f pcr.dat -L policy.dat
+tpm2_flushcontext session.dat
+
+echo hi | tpm2_create -u key.pub -r key.priv -C prim.ctx -L policy.dat -i-
+tpm2_flushcontext -t
+tpm2_load -C prim.ctx -u key.pub -r key.priv -c $PERM_HANDLE -n unseal.key.name
+
+tpm2_startauthsession --policy-session -S session.dat
+tpm2_policypcr -S session.dat -l $PCRS
+
+tpm2_unseal -psession:session.dat -c $PERM_HANDLE
+tpm2_flushcontext session.dat
 ```
 
 License: MIT OR Apache-2.0
