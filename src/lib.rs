@@ -458,7 +458,7 @@ impl PcrSealedContext {
         }
     }
 
-    pub fn seal(mut self, data: SensitiveData, handle: PersistentTpmHandle) -> Result<()> {
+    pub fn seal(&mut self, data: SensitiveData, handle: PersistentTpmHandle) -> Result<&mut Self> {
         let key = self.ctx.key;
 
         let object_attributes = ObjectAttributes::builder()
@@ -493,7 +493,7 @@ impl PcrSealedContext {
             ctx.tr_close(&mut persistent)?;
             Ok::<(), TpmError>(())
         })?;
-        Ok(())
+        Ok(self)
     }
 }
 
