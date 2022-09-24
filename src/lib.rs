@@ -78,6 +78,111 @@ pub enum TpmError {
 pub type Result<T, E = TpmError> = core::result::Result<T, E>;
 
 pub struct Context(MutexGuard<'static, tss_esapi::Context>);
+
+pub struct Ctx<S: ContextState> {
+    ctx: MutexGuard<'static, tss_esapi::Context>,
+    state: S,
+}
+
+impl<S: ContextState> Ctx<S> {
+    fn flush_transient(&mut self) -> Result<()> {
+        let (capabilities, _) = self.ctx.get_capability(CapabilityType::Handles, 0, 80)?;
+        if let CapabilityData::Handles(handles) = capabilities {
+            for handle in handles
+                .into_inner()
+                .into_iter()
+                .filter(|h| matches!(h, TpmHandle::Transient(_)))
+            {
+                let handle = self
+                    .ctx
+                    .execute_without_session(|ctx| ctx.tr_from_tpm_public(handle))?;
+                self.ctx.flush_context(handle).ok();
+            }
+        }
+        Ok(())
+    }
+}
+
+pub struct Initial;
+pub struct PrimaryKey {
+    key: KeyHandle,
+}
+pub struct PcrPolicy {
+    key: KeyHandle,
+    policy_digest: Digest,
+}
+pub struct PcrAuthed {
+    session: AuthSession,
+    pcr_selection_list: PcrSelectionList,
+}
+pub trait ContextState {}
+impl ContextState for Initial {}
+impl ContextState for PrimaryKey {}
+impl ContextState for PcrPolicy {}
+impl ContextState for PcrAuthed {}
+
+impl Ctx<Initial> {
+    pub fn create_primary(mut self) -> Result<Ctx<PrimaryKey>> {
+        // TODO not?
+        self.ctx.startup(StartupType::Clear)?;
+
+        let object_attributes = ObjectAttributes::builder()
+            .with_fixed_tpm(true)
+            .with_fixed_parent(true)
+            .with_sensitive_data_origin(true)
+            .with_user_with_auth(true)
+            .with_decrypt(true)
+            .with_sign_encrypt(false)
+            .with_restricted(true)
+            .build()?;
+
+        let public = Public::builder()
+            .with_public_algorithm(PublicAlgorithm::Ecc)
+            .with_name_hashing_algorithm(HashingAlgorithm::Sha256)
+            .with_object_attributes(object_attributes)
+            .with_ecc_parameters(
+                PublicEccParametersBuilder::new_restricted_decryption_key(
+                    SymmetricDefinitionObject::AES_128_CFB,
+                    EccCurve::NistP256,
+                )
+                .build()?,
+            )
+            .with_ecc_unique_identifier(EccPoint::default())
+            .build()?;
+
+        let CreatePrimaryKeyResult {
+            key_handle: key, ..
+        } = self.ctx.execute_with_nullauth_session(|ctx| {
+            ctx.create_primary(Hierarchy::Owner, public, None, None, None, None)
+        })?;
+        self.flush_transient().ok();
+
+        Ok(Ctx::<PrimaryKey> {
+            ctx: self.ctx,
+            state: PrimaryKey { key },
+        })
+    }
+}
+
+static CONTEXT: Lazy<Mutex<tss_esapi::Context>> = Lazy::new(|| {
+    use tss_esapi::tcti_ldr::TctiNameConf;
+
+    let context =
+        tss_esapi::Context::new(TctiNameConf::from_environment_variable().unwrap()).unwrap();
+    Mutex::new(context)
+});
+
+pub fn get_context() -> Result<Ctx<Initial>> {
+    let mut ctx = CONTEXT.lock().unwrap();
+    ctx.clear_sessions();
+    let mut ctx = Ctx {
+        ctx,
+        state: Initial {},
+    };
+    ctx.flush_transient()?;
+    Ok(ctx)
+}
+
 pub struct OwnedContext {
     ctx: Context,
     key: KeyHandle,
@@ -91,14 +196,6 @@ pub struct AuthedContext {
     session: AuthSession,
     pcr_selection_list: PcrSelectionList,
 }
-
-static CONTEXT: Lazy<Mutex<tss_esapi::Context>> = Lazy::new(|| {
-    use tss_esapi::tcti_ldr::TctiNameConf;
-
-    let context =
-        tss_esapi::Context::new(TctiNameConf::from_environment_variable().unwrap()).unwrap();
-    Mutex::new(context)
-});
 
 fn pcr_slot_to_handle(slot: &PcrSlot) -> PcrHandle {
     match slot {
@@ -595,6 +692,12 @@ mod tests {
 
         assert!(should_fail.is_err());
 
+        Ok(())
+    }
+
+    #[test]
+    fn seal_unseal_ng() -> Result<()> {
+        get_context()?.create_primary()?;
         Ok(())
     }
 }
