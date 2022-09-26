@@ -47,7 +47,7 @@
 
 use delegate::delegate;
 use once_cell::sync::Lazy;
-use std::ops::DerefMut;
+use std::ops::{Deref, DerefMut};
 use std::sync::{Mutex, MutexGuard};
 use thiserror::Error;
 use tss_esapi::attributes::ObjectAttributes;
@@ -85,7 +85,7 @@ pub trait TContext: DerefMut<Target = tss_esapi::Context> {}
 impl TContext for Qontext {}
 
 pub struct Ctx<C: TContext, S: ContextState> {
-    ctx: C, // e.g. MutexGuard<'static, tss_esapi::Context>,
+    ctx: C,
     state: S,
 }
 
@@ -129,10 +129,25 @@ impl<C: TContext, S: ContextState> Ctx<C, S> {
 }
 
 pub struct Initial;
-pub type InitialContext = Ctx<MutexGuard<'static, tss_esapi::Context>, Initial>;
-//pub struct PrimaryKey {
-//key: KeyHandle,
-//}
+pub type InitialContext = Ctx<Qontext, Initial>;
+pub struct PrimaryKey;
+pub struct PkCtx {
+    ctx: Qontext,
+    pub key: KeyHandle,
+}
+impl Deref for PkCtx {
+    type Target = tss_esapi::Context;
+    fn deref(&self) -> &Self::Target {
+        &self.ctx
+    }
+}
+impl DerefMut for PkCtx {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.ctx
+    }
+}
+impl TContext for PkCtx {}
+pub type PrimaryKeyContext = Ctx<PkCtx, PrimaryKey>;
 //pub struct PcrPolicy {
 //policy_digest: Digest,
 //}
@@ -142,52 +157,56 @@ pub type InitialContext = Ctx<MutexGuard<'static, tss_esapi::Context>, Initial>;
 //}
 pub trait ContextState {}
 impl ContextState for Initial {}
-//impl ContextState for PrimaryKey {}
+impl ContextState for PrimaryKey {}
 //impl ContextState for PcrPolicy {}
 //impl ContextState for PcrAuthed {}
 
-//impl Ctx<Initial> {
-//fn create_primary(mut self) -> Result<Ctx<Qontext, PrimaryKey>> {
-////TODO not?
-////self.ctx.startup(StartupType::Clear)?;
+impl InitialContext {
+    fn create_primary(mut self) -> Result<PrimaryKeyContext> {
+        //TODO not?
+        //self.ctx.startup(StartupType::Clear)?;
 
-//let object_attributes = ObjectAttributes::builder()
-//.with_fixed_tpm(true)
-//.with_fixed_parent(true)
-//.with_sensitive_data_origin(true)
-//.with_user_with_auth(true)
-//.with_decrypt(true)
-//.with_sign_encrypt(false)
-//.with_restricted(true)
-//.build()?;
+        let object_attributes = ObjectAttributes::builder()
+            .with_fixed_tpm(true)
+            .with_fixed_parent(true)
+            .with_sensitive_data_origin(true)
+            .with_user_with_auth(true)
+            .with_decrypt(true)
+            .with_sign_encrypt(false)
+            .with_restricted(true)
+            .build()?;
 
-//let public = Public::builder()
-//.with_public_algorithm(PublicAlgorithm::Ecc)
-//.with_name_hashing_algorithm(HashingAlgorithm::Sha256)
-//.with_object_attributes(object_attributes)
-//.with_ecc_parameters(
-//PublicEccParametersBuilder::new_restricted_decryption_key(
-//SymmetricDefinitionObject::AES_128_CFB,
-//EccCurve::NistP256,
-//)
-//.build()?,
-//)
-//.with_ecc_unique_identifier(EccPoint::default())
-//.build()?;
+        let public = Public::builder()
+            .with_public_algorithm(PublicAlgorithm::Ecc)
+            .with_name_hashing_algorithm(HashingAlgorithm::Sha256)
+            .with_object_attributes(object_attributes)
+            .with_ecc_parameters(
+                PublicEccParametersBuilder::new_restricted_decryption_key(
+                    SymmetricDefinitionObject::AES_128_CFB,
+                    EccCurve::NistP256,
+                )
+                .build()?,
+            )
+            .with_ecc_unique_identifier(EccPoint::default())
+            .build()?;
 
-//let CreatePrimaryKeyResult {
-//key_handle: key, ..
-//} = self.ctx.execute_with_nullauth_session(|ctx| {
-//ctx.create_primary(Hierarchy::Owner, public, None, None, None, None)
-//})?;
-//self.flush_transient().ok();
+        let CreatePrimaryKeyResult {
+            key_handle: key, ..
+        } = self.ctx.execute_with_nullauth_session(|ctx| {
+            ctx.create_primary(Hierarchy::Owner, public, None, None, None, None)
+        })?;
+        self.flush_transient().ok();
 
-//Ok(Ctx::<PrimaryKey> {
-//ctx: self.ctx,
-//state: PrimaryKey { key },
-//})
-//}
-//}
+        Ok(PrimaryKeyContext {
+            ctx: PkCtx { ctx: self.ctx, key },
+            state: PrimaryKey,
+        })
+        //Ok(Ctx::<PrimaryKey> {
+        //ctx: self.ctx,
+        //state: PrimaryKey { key },
+        //})
+    }
+}
 
 static CONTEXT: Lazy<Mutex<tss_esapi::Context>> = Lazy::new(|| {
     use tss_esapi::tcti_ldr::TctiNameConf;
@@ -725,7 +744,7 @@ mod tests {
 
     #[test]
     fn seal_unseal_ng() -> Result<()> {
-        get_context()?;
+        get_context()?.create_primary()?;
         Ok(())
     }
 }
