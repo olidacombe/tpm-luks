@@ -47,6 +47,7 @@
 
 use delegate::delegate;
 use once_cell::sync::Lazy;
+use std::ops::DerefMut;
 use std::sync::{Mutex, MutexGuard};
 use thiserror::Error;
 use tss_esapi::attributes::ObjectAttributes;
@@ -79,12 +80,16 @@ pub type Result<T, E = TpmError> = core::result::Result<T, E>;
 
 pub struct Context(MutexGuard<'static, tss_esapi::Context>);
 
-pub struct Ctx<S: ContextState> {
-    ctx: MutexGuard<'static, tss_esapi::Context>,
+pub type Qontext = MutexGuard<'static, tss_esapi::Context>;
+pub trait TContext: DerefMut<Target = tss_esapi::Context> {}
+impl TContext for Qontext {}
+
+pub struct Ctx<C: TContext, S: ContextState> {
+    ctx: C, // e.g. MutexGuard<'static, tss_esapi::Context>,
     state: S,
 }
 
-impl<S: ContextState> Ctx<S> {
+impl<C: TContext, S: ContextState> Ctx<C, S> {
     fn flush_transient(&mut self) -> Result<()> {
         let (capabilities, _) = self.ctx.get_capability(CapabilityType::Handles, 0, 80)?;
         if let CapabilityData::Handles(handles) = capabilities {
@@ -101,68 +106,88 @@ impl<S: ContextState> Ctx<S> {
         }
         Ok(())
     }
+    fn make_session(&mut self, t: SessionType) -> Result<AuthSession> {
+        let session = self
+            .ctx
+            .start_auth_session(
+                None,
+                None,
+                None,
+                t,
+                SymmetricDefinition::AES_128_CFB,
+                HashingAlgorithm::Sha256,
+            )?
+            .ok_or(TpmError::AuthSessionCreate)?;
+        let (session_attributes, session_attributes_mask) = SessionAttributes::builder()
+            .with_decrypt(true)
+            .with_encrypt(true)
+            .build();
+        self.ctx
+            .tr_sess_set_attributes(session, session_attributes, session_attributes_mask)?;
+        Ok(session)
+    }
 }
 
 pub struct Initial;
-pub struct PrimaryKey {
-    key: KeyHandle,
-}
-pub struct PcrPolicy {
-    key: KeyHandle,
-    policy_digest: Digest,
-}
-pub struct PcrAuthed {
-    session: AuthSession,
-    pcr_selection_list: PcrSelectionList,
-}
+pub type InitialContext = Ctx<MutexGuard<'static, tss_esapi::Context>, Initial>;
+//pub struct PrimaryKey {
+//key: KeyHandle,
+//}
+//pub struct PcrPolicy {
+//policy_digest: Digest,
+//}
+//pub struct PcrAuthed {
+//session: AuthSession,
+//pcr_selection_list: PcrSelectionList,
+//}
 pub trait ContextState {}
 impl ContextState for Initial {}
-impl ContextState for PrimaryKey {}
-impl ContextState for PcrPolicy {}
-impl ContextState for PcrAuthed {}
+//impl ContextState for PrimaryKey {}
+//impl ContextState for PcrPolicy {}
+//impl ContextState for PcrAuthed {}
 
-impl Ctx<Initial> {
-    pub fn create_primary(mut self) -> Result<Ctx<PrimaryKey>> {
-        // TODO not?
-        self.ctx.startup(StartupType::Clear)?;
+//impl Ctx<Initial> {
+//fn create_primary(mut self) -> Result<Ctx<Qontext, PrimaryKey>> {
+////TODO not?
+////self.ctx.startup(StartupType::Clear)?;
 
-        let object_attributes = ObjectAttributes::builder()
-            .with_fixed_tpm(true)
-            .with_fixed_parent(true)
-            .with_sensitive_data_origin(true)
-            .with_user_with_auth(true)
-            .with_decrypt(true)
-            .with_sign_encrypt(false)
-            .with_restricted(true)
-            .build()?;
+//let object_attributes = ObjectAttributes::builder()
+//.with_fixed_tpm(true)
+//.with_fixed_parent(true)
+//.with_sensitive_data_origin(true)
+//.with_user_with_auth(true)
+//.with_decrypt(true)
+//.with_sign_encrypt(false)
+//.with_restricted(true)
+//.build()?;
 
-        let public = Public::builder()
-            .with_public_algorithm(PublicAlgorithm::Ecc)
-            .with_name_hashing_algorithm(HashingAlgorithm::Sha256)
-            .with_object_attributes(object_attributes)
-            .with_ecc_parameters(
-                PublicEccParametersBuilder::new_restricted_decryption_key(
-                    SymmetricDefinitionObject::AES_128_CFB,
-                    EccCurve::NistP256,
-                )
-                .build()?,
-            )
-            .with_ecc_unique_identifier(EccPoint::default())
-            .build()?;
+//let public = Public::builder()
+//.with_public_algorithm(PublicAlgorithm::Ecc)
+//.with_name_hashing_algorithm(HashingAlgorithm::Sha256)
+//.with_object_attributes(object_attributes)
+//.with_ecc_parameters(
+//PublicEccParametersBuilder::new_restricted_decryption_key(
+//SymmetricDefinitionObject::AES_128_CFB,
+//EccCurve::NistP256,
+//)
+//.build()?,
+//)
+//.with_ecc_unique_identifier(EccPoint::default())
+//.build()?;
 
-        let CreatePrimaryKeyResult {
-            key_handle: key, ..
-        } = self.ctx.execute_with_nullauth_session(|ctx| {
-            ctx.create_primary(Hierarchy::Owner, public, None, None, None, None)
-        })?;
-        self.flush_transient().ok();
+//let CreatePrimaryKeyResult {
+//key_handle: key, ..
+//} = self.ctx.execute_with_nullauth_session(|ctx| {
+//ctx.create_primary(Hierarchy::Owner, public, None, None, None, None)
+//})?;
+//self.flush_transient().ok();
 
-        Ok(Ctx::<PrimaryKey> {
-            ctx: self.ctx,
-            state: PrimaryKey { key },
-        })
-    }
-}
+//Ok(Ctx::<PrimaryKey> {
+//ctx: self.ctx,
+//state: PrimaryKey { key },
+//})
+//}
+//}
 
 static CONTEXT: Lazy<Mutex<tss_esapi::Context>> = Lazy::new(|| {
     use tss_esapi::tcti_ldr::TctiNameConf;
@@ -172,9 +197,10 @@ static CONTEXT: Lazy<Mutex<tss_esapi::Context>> = Lazy::new(|| {
     Mutex::new(context)
 });
 
-pub fn get_context() -> Result<Ctx<Initial>> {
+pub fn get_context() -> Result<InitialContext> {
     let mut ctx = CONTEXT.lock().unwrap();
-    ctx.clear_sessions();
+    ctx.startup(StartupType::Clear)?;
+    //ctx.clear_sessions();
     let mut ctx = Ctx {
         ctx,
         state: Initial {},
@@ -587,6 +613,7 @@ impl PcrSealedContext {
             let mut persistent =
                 ctx.evict_control(Provision::Owner, transient, Persistent::Persistent(handle))?;
             ctx.flush_context(transient)?;
+            ctx.flush_context(key.into())?;
             ctx.tr_close(&mut persistent)?;
             Ok::<(), TpmError>(())
         })?;
@@ -642,6 +669,7 @@ impl AuthedContext {
         let data =
             self.execute_with_session(Some(self.session), |ctx| ctx.unseal(object_handle))?;
         self.extend(None)?;
+        self.flush_session(self.session)?;
         Ok(data)
     }
 }
@@ -697,7 +725,7 @@ mod tests {
 
     #[test]
     fn seal_unseal_ng() -> Result<()> {
-        get_context()?.create_primary()?;
+        get_context()?;
         Ok(())
     }
 }
