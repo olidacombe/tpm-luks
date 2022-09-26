@@ -146,6 +146,11 @@ impl DerefMut for PkCtx {
         &mut self.ctx
     }
 }
+impl Drop for PkCtx {
+    fn drop(&mut self) {
+        self.ctx.flush_context(self.key.into()).ok();
+    }
+}
 impl TContext for PkCtx {}
 pub type PrimaryKeyContext = Ctx<PkCtx, PrimaryKey>;
 //pub struct PcrPolicy {
