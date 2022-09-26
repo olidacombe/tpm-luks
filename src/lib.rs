@@ -90,6 +90,22 @@ pub struct Ctx<C: TContext, S: ContextState> {
 }
 
 impl<C: TContext, S: ContextState> Ctx<C, S> {
+    fn flush_session(&mut self, session: AuthSession) -> Result<()> {
+        let handle = match session {
+            AuthSession::HmacSession(session) => match session {
+                HmacSession::HmacSession { session_handle, .. } => Some(session_handle.into()),
+            },
+            AuthSession::PolicySession(session) => match session {
+                PolicySession::PolicySession { session_handle, .. } => Some(session_handle.into()),
+            },
+            _ => None,
+        };
+        if let Some(handle) = handle {
+            self.ctx.flush_context(handle)?;
+        }
+        Ok(())
+    }
+
     fn flush_transient(&mut self) -> Result<()> {
         let (capabilities, _) = self.ctx.get_capability(CapabilityType::Handles, 0, 80)?;
         if let CapabilityData::Handles(handles) = capabilities {
@@ -126,6 +142,34 @@ impl<C: TContext, S: ContextState> Ctx<C, S> {
             .tr_sess_set_attributes(session, session_attributes, session_attributes_mask)?;
         Ok(session)
     }
+    /// Returns the digest for a PCR selection list
+    fn pcr_digest(
+        &mut self,
+        pcr_selection_list: &PcrSelectionList,
+        hashing_algorithm: HashingAlgorithm,
+    ) -> Result<Digest> {
+        let (_update_counter, _selection_list, digest_list) = self
+            .ctx
+            .execute_without_session(|ctx| ctx.pcr_read(pcr_selection_list.clone()))?;
+
+        let concatenated_pcr_digests = digest_list
+            .value()
+            .iter()
+            .map(|x| x.value())
+            .collect::<Vec<&[u8]>>()
+            .concat();
+        let concatenated_pcr_digests = MaxBuffer::try_from(concatenated_pcr_digests)?;
+
+        let (digest, _ticket) = self.ctx.execute_without_session(|ctx| {
+            ctx.hash(
+                concatenated_pcr_digests,
+                hashing_algorithm, // must match start_auth_session, regardless of PCR banks used
+                Hierarchy::Owner,
+            )
+        })?;
+
+        Ok(digest)
+    }
 }
 
 pub struct Initial;
@@ -153,9 +197,10 @@ impl Drop for PkCtx {
 }
 impl TContext for PkCtx {}
 pub type PrimaryKeyContext = Ctx<PkCtx, PrimaryKey>;
-//pub struct PcrPolicy {
-//policy_digest: Digest,
-//}
+pub struct PcrPolicy {
+    policy_digest: Digest,
+}
+pub type PcrPolicyContext = Ctx<PkCtx, PcrPolicy>;
 //pub struct PcrAuthed {
 //session: AuthSession,
 //pcr_selection_list: PcrSelectionList,
@@ -163,7 +208,7 @@ pub type PrimaryKeyContext = Ctx<PkCtx, PrimaryKey>;
 pub trait ContextState {}
 impl ContextState for Initial {}
 impl ContextState for PrimaryKey {}
-//impl ContextState for PcrPolicy {}
+impl ContextState for PcrPolicy {}
 //impl ContextState for PcrAuthed {}
 
 impl InitialContext {
@@ -206,10 +251,32 @@ impl InitialContext {
             ctx: PkCtx { ctx: self.ctx, key },
             state: PrimaryKey,
         })
-        //Ok(Ctx::<PrimaryKey> {
-        //ctx: self.ctx,
-        //state: PrimaryKey { key },
-        //})
+    }
+}
+
+impl PrimaryKeyContext {
+    pub fn with_pcr_policy(mut self, options: PcrPolicyOptions) -> Result<PcrPolicyContext> {
+        let session = self.make_session(SessionType::Trial)?;
+
+        let PcrPolicyOptions {
+            digest,
+            pcr_selection_list,
+        } = options;
+
+        let digest = match digest {
+            Some(digest) => digest,
+            None => self.pcr_digest(&pcr_selection_list, HashingAlgorithm::Sha256)?,
+        };
+
+        self.ctx
+            .policy_pcr(session.try_into()?, digest, pcr_selection_list.clone())?;
+        let policy_digest = self.ctx.policy_get_digest(session.try_into()?)?;
+        self.flush_session(session)?;
+
+        Ok(PcrPolicyContext {
+            ctx: self.ctx,
+            state: PcrPolicy { policy_digest },
+        })
     }
 }
 
@@ -749,7 +816,12 @@ mod tests {
 
     #[test]
     fn seal_unseal_ng() -> Result<()> {
-        get_context()?.create_primary()?;
+        let data = SensitiveData::try_from("Howdy".as_bytes().to_vec())?;
+        let handle = PersistentTpmHandle::new(u32::from_be_bytes([0x81, 0x01, 0x00, 0x03]))?;
+
+        get_context()?
+            .create_primary()?
+            .with_pcr_policy(PcrPolicyOptions::default())?;
         Ok(())
     }
 }
