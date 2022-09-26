@@ -201,17 +201,53 @@ pub struct PcrPolicy {
     policy_digest: Digest,
 }
 pub type PcrPolicyContext = Ctx<PkCtx, PcrPolicy>;
-//pub struct PcrAuthed {
-//session: AuthSession,
-//pcr_selection_list: PcrSelectionList,
-//}
+pub struct PcrAuthed {
+    pcr_selection_list: PcrSelectionList,
+}
+pub struct PcrAuthedCtx {
+    ctx: Qontext,
+    pub session: AuthSession,
+}
+impl Deref for PcrAuthedCtx {
+    type Target = tss_esapi::Context;
+    fn deref(&self) -> &Self::Target {
+        &self.ctx
+    }
+}
+impl DerefMut for PcrAuthedCtx {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.ctx
+    }
+}
+impl Drop for PcrAuthedCtx {
+    fn drop(&mut self) {
+        // TODO impl direct on Qontext and lift
+        self.flush_session(self.session).ok();
+    }
+}
+impl TContext for PcrAuthedCtx {}
+pub type PcrAuthedContext = Ctx<PcrAuthedCtx, PcrAuthed>;
+
 pub trait ContextState {}
 impl ContextState for Initial {}
 impl ContextState for PrimaryKey {}
 impl ContextState for PcrPolicy {}
-//impl ContextState for PcrAuthed {}
+impl ContextState for PcrAuthed {}
 
 impl InitialContext {
+    pub fn pcr_auth(mut self, pcr_selection_list: PcrSelectionList) -> Result<PcrAuthedContext> {
+        let digest = self.pcr_digest(&pcr_selection_list, HashingAlgorithm::Sha256)?;
+        let session = self.make_session(SessionType::Policy)?;
+        self.ctx
+            .policy_pcr(session.try_into()?, digest, pcr_selection_list.clone())?;
+        Ok(PcrAuthedContext {
+            ctx: PcrAuthedCtx {
+                ctx: self.ctx,
+                session,
+            },
+            state: PcrAuthed { pcr_selection_list },
+        })
+    }
     fn create_primary(mut self) -> Result<PrimaryKeyContext> {
         //TODO not?
         //self.ctx.startup(StartupType::Clear)?;
@@ -822,6 +858,10 @@ mod tests {
         get_context()?
             .create_primary()?
             .with_pcr_policy(PcrPolicyOptions::default())?;
+
+        let unsealed = get_context()?.pcr_auth(PcrPolicyOptions::default().pcr_selection_list)?;
+        //.unseal(handle)?;
+
         Ok(())
     }
 }
