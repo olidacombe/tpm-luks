@@ -526,25 +526,6 @@ mod tests {
     #[test]
     fn seal_unseal() -> Result<()> {
         let data = SensitiveData::try_from("Howdy".as_bytes().to_vec())?;
-        let handle = PersistentTpmHandle::new(u32::from_be_bytes([0x81, 0x01, 0x00, 0x03]))?;
-
-        get_context()?
-            .create_primary()?
-            .with_pcr_policy(PcrPolicyOptions::default())?
-            .seal(data.clone(), handle)?;
-
-        let unsealed = get_context()?
-            .pcr_auth(PcrPolicyOptions::default().pcr_selection_list)?
-            .unseal(handle)?;
-
-        assert_eq!(data, unsealed);
-
-        Ok(())
-    }
-
-    #[test]
-    fn no_unseal_twice() -> Result<()> {
-        let data = SensitiveData::try_from("Howdy".as_bytes().to_vec())?;
         let handle = PersistentTpmHandle::new(u32::from_be_bytes([0x81, 0x01, 0x00, 0x02]))?;
 
         get_context()?
