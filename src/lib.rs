@@ -236,6 +236,8 @@ pub type PcrPolicyContext = Ctx<PkCtx, PcrPolicy>;
 pub struct PcrAuthed {
     pcr_selection_list: PcrSelectionList,
 }
+#[derive(Delegate)]
+#[delegate(FlushSession, target = "ctx")]
 pub struct PcrAuthedCtx {
     ctx: Qontext,
     pub session: AuthSession,
@@ -386,6 +388,47 @@ impl PcrPolicyContext {
                 Ok::<(), TpmError>(())
             })?;
         Ok(self)
+    }
+}
+
+impl PcrAuthedContext {
+    // TODO consume self?
+    fn extend(&mut self, pcr_handle: Option<PcrHandle>) -> Result<()> {
+        let pcr_handle = pcr_handle
+            .or_else(|| {
+                self.state
+                    .pcr_selection_list
+                    .get_selections()
+                    .iter()
+                    .find_map(|s| match s.is_empty() {
+                        true => None,
+                        false => s.selected().first().map(pcr_slot_to_handle),
+                    })
+            })
+            .ok_or(TpmError::EmptyPcrSelectionList)?;
+        let random_digest_sha1 = self.ctx.get_random(20)?;
+        let random_digest_sha256 = self.ctx.get_random(32)?;
+        let mut vals = DigestValues::new();
+        vals.set(HashingAlgorithm::Sha1, random_digest_sha1);
+        vals.set(HashingAlgorithm::Sha256, random_digest_sha256);
+        let session = self.make_session(SessionType::Hmac)?;
+        self.ctx
+            .execute_with_session(Some(session), |ctx| ctx.pcr_extend(pcr_handle, vals))?;
+
+        Ok(())
+    }
+
+    pub fn unseal(mut self, handle: PersistentTpmHandle) -> Result<SensitiveData> {
+        let object_handle = self
+            .ctx
+            .execute_without_session(|ctx| ctx.tr_from_tpm_public(handle.into()))?;
+        let session = self.ctx.session;
+        let data = self
+            .ctx
+            .execute_with_session(Some(session), |ctx| ctx.unseal(object_handle))?;
+        self.ctx.flush_session(self.ctx.session)?;
+        self.extend(None)?;
+        Ok(data)
     }
 }
 
@@ -879,18 +922,62 @@ mod tests {
     use super::*;
     use eyre::Result;
 
+    //#[test]
+    //fn seal_unseal() -> Result<()> {
+    //let data = SensitiveData::try_from("Howdy".as_bytes().to_vec())?;
+    //let handle = PersistentTpmHandle::new(u32::from_be_bytes([0x81, 0x01, 0x00, 0x01]))?;
+
+    //Context::new()?
+    //.own()?
+    //.with_pcr_policy(PcrPolicyOptions::default())?
+    //.seal(data.clone(), handle)?;
+
+    //let unsealed = Context::new()?
+    //.auth(PcrPolicyOptions::default().pcr_selection_list)?
+    //.unseal(handle)?;
+
+    //assert_eq!(data, unsealed);
+
+    //Ok(())
+    //}
+
+    //#[test]
+    //fn no_unseal_twice() -> Result<()> {
+    //let data = SensitiveData::try_from("Howdy".as_bytes().to_vec())?;
+    //let handle = PersistentTpmHandle::new(u32::from_be_bytes([0x81, 0x01, 0x00, 0x02]))?;
+
+    //Context::new()?
+    //.own()?
+    //.with_pcr_policy(PcrPolicyOptions::default())?
+    //.seal(data.clone(), handle)?;
+
+    //let unsealed = Context::new()?
+    //.auth(PcrPolicyOptions::default().pcr_selection_list)?
+    //.unseal(handle)?;
+
+    //assert_eq!(data, unsealed);
+
+    //let should_fail = Context::new()?
+    //.auth(PcrPolicyOptions::default().pcr_selection_list)?
+    //.unseal(handle);
+
+    //assert!(should_fail.is_err());
+
+    //Ok(())
+    //}
+
     #[test]
     fn seal_unseal() -> Result<()> {
         let data = SensitiveData::try_from("Howdy".as_bytes().to_vec())?;
-        let handle = PersistentTpmHandle::new(u32::from_be_bytes([0x81, 0x01, 0x00, 0x01]))?;
+        let handle = PersistentTpmHandle::new(u32::from_be_bytes([0x81, 0x01, 0x00, 0x03]))?;
 
-        Context::new()?
-            .own()?
+        get_context()?
+            .create_primary()?
             .with_pcr_policy(PcrPolicyOptions::default())?
             .seal(data.clone(), handle)?;
 
-        let unsealed = Context::new()?
-            .auth(PcrPolicyOptions::default().pcr_selection_list)?
+        let unsealed = get_context()?
+            .pcr_auth(PcrPolicyOptions::default().pcr_selection_list)?
             .unseal(handle)?;
 
         assert_eq!(data, unsealed);
@@ -903,38 +990,22 @@ mod tests {
         let data = SensitiveData::try_from("Howdy".as_bytes().to_vec())?;
         let handle = PersistentTpmHandle::new(u32::from_be_bytes([0x81, 0x01, 0x00, 0x02]))?;
 
-        Context::new()?
-            .own()?
-            .with_pcr_policy(PcrPolicyOptions::default())?
-            .seal(data.clone(), handle)?;
-
-        let unsealed = Context::new()?
-            .auth(PcrPolicyOptions::default().pcr_selection_list)?
-            .unseal(handle)?;
-
-        assert_eq!(data, unsealed);
-
-        let should_fail = Context::new()?
-            .auth(PcrPolicyOptions::default().pcr_selection_list)?
-            .unseal(handle);
-
-        assert!(should_fail.is_err());
-
-        Ok(())
-    }
-
-    #[test]
-    fn seal_unseal_ng() -> Result<()> {
-        let data = SensitiveData::try_from("Howdy".as_bytes().to_vec())?;
-        let handle = PersistentTpmHandle::new(u32::from_be_bytes([0x81, 0x01, 0x00, 0x03]))?;
-
         get_context()?
             .create_primary()?
             .with_pcr_policy(PcrPolicyOptions::default())?
             .seal(data.clone(), handle)?;
 
-        let unsealed = get_context()?.pcr_auth(PcrPolicyOptions::default().pcr_selection_list)?;
-        //.unseal(handle)?;
+        let unsealed = get_context()?
+            .pcr_auth(PcrPolicyOptions::default().pcr_selection_list)?
+            .unseal(handle)?;
+
+        assert_eq!(data, unsealed);
+
+        let should_fail = get_context()?
+            .pcr_auth(PcrPolicyOptions::default().pcr_selection_list)?
+            .unseal(handle);
+
+        assert!(should_fail.is_err());
 
         Ok(())
     }
