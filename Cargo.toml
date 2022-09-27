@@ -7,6 +7,7 @@ authors = ["Oli Dacombe <olidacombe@gmail.com>"]
 license = "MIT OR Apache-2.0"
 
 [dependencies]
+ambassador = "0.3.4"
 delegate = "0.7.0"
 once_cell = "1.13.0"
 thiserror = "1.0.32"

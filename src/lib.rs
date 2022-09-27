@@ -45,6 +45,7 @@
 //! tpm2_flushcontext session.dat
 //! ```
 
+use ambassador::{delegatable_trait, Delegate};
 use delegate::delegate;
 use once_cell::sync::Lazy;
 use std::ops::{Deref, DerefMut};
@@ -89,6 +90,7 @@ pub struct Ctx<C: TContext, S: ContextState> {
     state: S,
 }
 
+#[delegatable_trait]
 trait FlushSession {
     fn flush_session(&mut self, session: AuthSession) -> Result<()>;
 }
@@ -112,22 +114,6 @@ impl FlushSession for Qontext {
 }
 
 impl<C: TContext, S: ContextState> Ctx<C, S> {
-    // TODO kill
-    fn flush_session(&mut self, session: AuthSession) -> Result<()> {
-        let handle = match session {
-            AuthSession::HmacSession(session) => match session {
-                HmacSession::HmacSession { session_handle, .. } => Some(session_handle.into()),
-            },
-            AuthSession::PolicySession(session) => match session {
-                PolicySession::PolicySession { session_handle, .. } => Some(session_handle.into()),
-            },
-            _ => None,
-        };
-        if let Some(handle) = handle {
-            self.ctx.flush_context(handle)?;
-        }
-        Ok(())
-    }
     pub fn evict_persistent(&mut self, handle: PersistentTpmHandle) {
         self.ctx
             .execute_without_session(|ctx| ctx.tr_from_tpm_public(TpmHandle::Persistent(handle)))
@@ -219,6 +205,8 @@ impl<C: TContext, S: ContextState> Ctx<C, S> {
 pub struct Initial;
 pub type InitialContext = Ctx<Qontext, Initial>;
 pub struct PrimaryKey;
+#[derive(Delegate)]
+#[delegate(FlushSession, target = "ctx")]
 pub struct PkCtx {
     ctx: Qontext,
     pub key: KeyHandle,
@@ -350,7 +338,7 @@ impl PrimaryKeyContext {
         self.ctx
             .policy_pcr(session.try_into()?, digest, pcr_selection_list.clone())?;
         let policy_digest = self.ctx.policy_get_digest(session.try_into()?)?;
-        self.flush_session(session)?;
+        self.ctx.flush_session(session)?;
 
         Ok(PcrPolicyContext {
             ctx: self.ctx,
