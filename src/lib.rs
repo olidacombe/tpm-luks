@@ -112,6 +112,7 @@ impl FlushSession for Qontext {
 }
 
 impl<C: TContext, S: ContextState> Ctx<C, S> {
+    // TODO kill
     fn flush_session(&mut self, session: AuthSession) -> Result<()> {
         let handle = match session {
             AuthSession::HmacSession(session) => match session {
@@ -126,6 +127,27 @@ impl<C: TContext, S: ContextState> Ctx<C, S> {
             self.ctx.flush_context(handle)?;
         }
         Ok(())
+    }
+    pub fn evict_persistent(&mut self, handle: PersistentTpmHandle) {
+        self.ctx
+            .execute_without_session(|ctx| ctx.tr_from_tpm_public(TpmHandle::Persistent(handle)))
+            .ok()
+            .map(|retrieved| {
+                // Evict the persitent handle from the tpm
+                // An authorization session is required!
+                // [this](https://docs.rs/tss-esapi/latest/src/tss_esapi/context/tpm_commands/context_management.rs.html#397)
+                // was really helpful
+                self.ctx
+                    .execute_with_session(Some(AuthSession::Password), |ctx| {
+                        ctx.evict_control(
+                            Provision::Owner,
+                            retrieved,
+                            Persistent::Persistent(handle),
+                        )
+                    })
+                    .ok()
+            });
+        self.flush_transient().ok();
     }
 
     fn flush_transient(&mut self) -> Result<()> {
@@ -334,6 +356,48 @@ impl PrimaryKeyContext {
             ctx: self.ctx,
             state: PcrPolicy { policy_digest },
         })
+    }
+}
+
+impl PcrPolicyContext {
+    pub fn seal(&mut self, data: SensitiveData, handle: PersistentTpmHandle) -> Result<&mut Self> {
+        let key = self.ctx.key;
+
+        let object_attributes = ObjectAttributes::builder()
+            .with_fixed_tpm(true)
+            .with_fixed_parent(true)
+            .build()?;
+
+        let public = Public::builder()
+            .with_public_algorithm(PublicAlgorithm::KeyedHash)
+            .with_name_hashing_algorithm(HashingAlgorithm::Sha256)
+            .with_object_attributes(object_attributes)
+            .with_auth_policy(self.state.policy_digest.clone())
+            .with_keyed_hash_parameters(PublicKeyedHashParameters::new(
+                KeyedHashScheme::Null, // according to https://tpm2-tools.readthedocs.io/en/latest/man/tpm2_create.1/
+            ))
+            .with_keyed_hash_unique_identifier(Digest::default())
+            .build()?;
+
+        // Make sure there isn't data already stored at our intended handle
+        self.evict_persistent(handle);
+
+        self.ctx
+            .execute_with_session(Some(AuthSession::Password), |ctx| {
+                let CreateKeyResult {
+                    out_private,
+                    out_public,
+                    ..
+                } = ctx.create(key, public, None, Some(data), None, None)?;
+                let transient = ctx.load(key, out_private, out_public)?.into();
+                let mut persistent =
+                    ctx.evict_control(Provision::Owner, transient, Persistent::Persistent(handle))?;
+                ctx.flush_context(transient)?;
+                ctx.flush_context(key.into())?;
+                ctx.tr_close(&mut persistent)?;
+                Ok::<(), TpmError>(())
+            })?;
+        Ok(self)
     }
 }
 
@@ -878,7 +942,8 @@ mod tests {
 
         get_context()?
             .create_primary()?
-            .with_pcr_policy(PcrPolicyOptions::default())?;
+            .with_pcr_policy(PcrPolicyOptions::default())?
+            .seal(data.clone(), handle)?;
 
         let unsealed = get_context()?.pcr_auth(PcrPolicyOptions::default().pcr_selection_list)?;
         //.unseal(handle)?;
