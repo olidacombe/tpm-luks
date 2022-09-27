@@ -52,9 +52,9 @@ use std::ops::{Deref, DerefMut};
 use std::sync::{Mutex, MutexGuard};
 use thiserror::Error;
 use tss_esapi::attributes::ObjectAttributes;
-use tss_esapi::attributes::{SessionAttributes, SessionAttributesMask};
+use tss_esapi::attributes::SessionAttributes;
 use tss_esapi::constants::{CapabilityType, SessionType, StartupType};
-use tss_esapi::handles::{KeyHandle, ObjectHandle, PcrHandle, PersistentTpmHandle, TpmHandle};
+use tss_esapi::handles::{KeyHandle, PcrHandle, PersistentTpmHandle, TpmHandle};
 use tss_esapi::interface_types::algorithm::{HashingAlgorithm, PublicAlgorithm};
 use tss_esapi::interface_types::dynamic_handles::Persistent;
 use tss_esapi::interface_types::ecc::EccCurve;
@@ -62,9 +62,8 @@ use tss_esapi::interface_types::resource_handles::{Hierarchy, Provision};
 use tss_esapi::interface_types::session_handles::{AuthSession, HmacSession, PolicySession};
 use tss_esapi::structures::{
     CapabilityData, CreateKeyResult, CreatePrimaryKeyResult, Digest, DigestValues, EccPoint,
-    KeyedHashScheme, MaxBuffer, Nonce, PcrSelectionList, PcrSlot, Public,
-    PublicEccParametersBuilder, PublicKeyedHashParameters, SensitiveData, SymmetricDefinition,
-    SymmetricDefinitionObject,
+    KeyedHashScheme, MaxBuffer, PcrSelectionList, PcrSlot, Public, PublicEccParametersBuilder,
+    PublicKeyedHashParameters, SensitiveData, SymmetricDefinition, SymmetricDefinitionObject,
 };
 
 #[derive(Error, Debug)]
@@ -79,11 +78,9 @@ pub enum TpmError {
 
 pub type Result<T, E = TpmError> = core::result::Result<T, E>;
 
-pub struct Context(MutexGuard<'static, tss_esapi::Context>);
-
-pub type Qontext = MutexGuard<'static, tss_esapi::Context>;
+pub type Context = MutexGuard<'static, tss_esapi::Context>;
 pub trait TContext: DerefMut<Target = tss_esapi::Context> {}
-impl TContext for Qontext {}
+impl TContext for Context {}
 
 pub struct Ctx<C: TContext, S: ContextState> {
     ctx: C,
@@ -95,7 +92,7 @@ trait FlushSession {
     fn flush_session(&mut self, session: AuthSession) -> Result<()>;
 }
 
-impl FlushSession for Qontext {
+impl FlushSession for Context {
     fn flush_session(&mut self, session: AuthSession) -> Result<()> {
         let handle = match session {
             AuthSession::HmacSession(session) => match session {
@@ -203,12 +200,12 @@ impl<C: TContext, S: ContextState> Ctx<C, S> {
 }
 
 pub struct Initial;
-pub type InitialContext = Ctx<Qontext, Initial>;
+pub type InitialContext = Ctx<Context, Initial>;
 pub struct PrimaryKey;
 #[derive(Delegate)]
 #[delegate(FlushSession, target = "ctx")]
 pub struct PkCtx {
-    ctx: Qontext,
+    ctx: Context,
     pub key: KeyHandle,
 }
 impl Deref for PkCtx {
@@ -239,7 +236,7 @@ pub struct PcrAuthed {
 #[derive(Delegate)]
 #[delegate(FlushSession, target = "ctx")]
 pub struct PcrAuthedCtx {
-    ctx: Qontext,
+    ctx: Context,
     pub session: AuthSession,
 }
 impl Deref for PcrAuthedCtx {
@@ -281,8 +278,7 @@ impl InitialContext {
             state: PcrAuthed { pcr_selection_list },
         })
     }
-    fn create_primary(mut self) -> Result<PrimaryKeyContext> {
-        //TODO not?
+    pub fn create_primary(mut self) -> Result<PrimaryKeyContext> {
         //self.ctx.startup(StartupType::Clear)?;
 
         let object_attributes = ObjectAttributes::builder()
