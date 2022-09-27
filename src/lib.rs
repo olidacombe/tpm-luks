@@ -89,6 +89,28 @@ pub struct Ctx<C: TContext, S: ContextState> {
     state: S,
 }
 
+trait FlushSession {
+    fn flush_session(&mut self, session: AuthSession) -> Result<()>;
+}
+
+impl FlushSession for Qontext {
+    fn flush_session(&mut self, session: AuthSession) -> Result<()> {
+        let handle = match session {
+            AuthSession::HmacSession(session) => match session {
+                HmacSession::HmacSession { session_handle, .. } => Some(session_handle.into()),
+            },
+            AuthSession::PolicySession(session) => match session {
+                PolicySession::PolicySession { session_handle, .. } => Some(session_handle.into()),
+            },
+            _ => None,
+        };
+        if let Some(handle) = handle {
+            self.flush_context(handle)?;
+        }
+        Ok(())
+    }
+}
+
 impl<C: TContext, S: ContextState> Ctx<C, S> {
     fn flush_session(&mut self, session: AuthSession) -> Result<()> {
         let handle = match session {
@@ -221,8 +243,7 @@ impl DerefMut for PcrAuthedCtx {
 }
 impl Drop for PcrAuthedCtx {
     fn drop(&mut self) {
-        // TODO impl direct on Qontext and lift
-        self.flush_session(self.session).ok();
+        self.ctx.flush_session(self.session).ok();
     }
 }
 impl TContext for PcrAuthedCtx {}
