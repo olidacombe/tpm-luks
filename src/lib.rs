@@ -46,7 +46,6 @@
 //! ```
 
 use ambassador::{delegatable_trait, Delegate};
-use delegate::delegate;
 use once_cell::sync::Lazy;
 use std::ops::{Deref, DerefMut};
 use std::sync::{Mutex, MutexGuard};
