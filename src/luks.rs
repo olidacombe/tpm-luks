@@ -39,8 +39,8 @@ mod tests {
 
     impl TestContext {
         fn new(name: String) -> TestContext {
-            //let _ = env_logger::builder().is_test(true).try_init();
-            //cryptsetup_rs::enable_debug(true);
+            let _ = env_logger::builder().is_test(true).try_init();
+            cryptsetup_rs::enable_debug(true);
             let dir = Builder::new().prefix(&name).tempdir().expect("Tempdir!");
             TestContext { name, dir }
         }
@@ -70,9 +70,11 @@ mod tests {
             .rng_type(crypt_rng_type::CRYPT_RNG_URANDOM)
             .iteration_time(42);
 
-        let dev = device_format.luks1("aes", "xts-plain", "sha256", 256, Some(&uuid))?;
+        let mut dev = device_format.luks1("aes", "xts-plain", "sha256", 256, Some(&uuid))?;
 
         assert_eq!(dev.device_type(), crypt_device_type::LUKS1);
+
+        dev.activate(&ctx.name, b"thunderdome")?;
 
         let manager = LuksManager { dev: Box::new(dev) };
 
@@ -82,7 +84,7 @@ mod tests {
     fn create_new_luks2_manager() -> Result<LuksManager> {
         let ctx = TestContext::new("new_luks2_cryptdevice".to_string());
 
-        let dev = ctx
+        let mut dev = ctx
             .new_crypt_device()
             .luks2("aes", "xts-plain", 256, None, None, None)
             .label("test")
@@ -90,6 +92,8 @@ mod tests {
             .start()?;
 
         assert_eq!(dev.device_type(), crypt_device_type::LUKS2);
+
+        dev.activate(&ctx.name, b"thunderball")?;
 
         let manager = LuksManager { dev: Box::new(dev) };
 

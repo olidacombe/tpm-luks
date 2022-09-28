@@ -19,6 +19,7 @@ tss-esapi = "7.1.0"
 eyre = "0.6.8"
 tempfile = "3.3.0"
 uuid = "1.1.2"
+env_logger = "0.9.1"
 
 
 [dev-dependencies.cargo-husky]
