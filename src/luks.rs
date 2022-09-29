@@ -3,7 +3,6 @@ use cryptsetup_rs::api::{
     Luks2CryptDeviceHandle, LuksCryptDevice,
 };
 use cryptsetup_rs::{crypt_device_type, crypt_rng_type};
-use either::Either;
 use thiserror::Error;
 use tss_esapi::structures::SensitiveData;
 
