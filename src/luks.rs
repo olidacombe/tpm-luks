@@ -29,11 +29,14 @@ impl LuksManager {
 mod tests {
     use super::*;
     use eyre::Result;
+    use std::path::PathBuf;
     use std::{process::Command, sync::Arc};
     use tempfile::{Builder, TempDir};
     use uuid::Uuid;
+
     struct TestContext {
         dir: TempDir,
+        file: PathBuf,
         name: String,
     }
 
@@ -42,26 +45,26 @@ mod tests {
             let _ = env_logger::builder().is_test(true).try_init();
             cryptsetup_rs::enable_debug(true);
             let dir = Builder::new().prefix(&name).tempdir().expect("Tempdir!");
-            TestContext { name, dir }
+            let file = dir.path().join(format!("{}.image", name));
+            TestContext { name, file, dir }
         }
 
         fn new_crypt_device(&self) -> CryptDeviceFormatBuilder {
-            let crypt_file = self.dir.path().join(format!("{}.image", self.name));
             let fallocate_status = Command::new("fallocate")
                 .arg("-l")
                 .arg("20MiB")
-                .arg(format!("{}", crypt_file.display()))
+                .arg(&self.file)
                 .status()
                 .unwrap();
             if !fallocate_status.success() {
-                panic!("Failed to create disk image at {}", crypt_file.display());
+                panic!("Failed to create disk image at {}", &self.file.display());
             }
 
-            cryptsetup_rs::format(crypt_file).unwrap()
+            cryptsetup_rs::format(&self.file).unwrap()
         }
     }
 
-    fn create_new_luks1_manager() -> Result<LuksManager> {
+    fn create_new_luks1_manager() -> Result<(LuksManager, TestContext)> {
         let ctx = TestContext::new("new_luks1_cryptdevice".to_string());
         let uuid = Uuid::new_v4();
 
@@ -74,14 +77,15 @@ mod tests {
 
         assert_eq!(dev.device_type(), crypt_device_type::LUKS1);
 
-        dev.activate(&ctx.name, b"thunderdome")?;
+        dev.add_keyslot(b"thunderdome", None, None)?;
+        //dev.activate(&ctx.name, b"thunderdome")?;
 
         let manager = LuksManager { dev: Box::new(dev) };
 
-        Ok(manager)
+        Ok((manager, ctx))
     }
 
-    fn create_new_luks2_manager() -> Result<LuksManager> {
+    fn create_new_luks2_manager() -> Result<(LuksManager, TestContext)> {
         let ctx = TestContext::new("new_luks2_cryptdevice".to_string());
 
         let mut dev = ctx
@@ -93,18 +97,19 @@ mod tests {
 
         assert_eq!(dev.device_type(), crypt_device_type::LUKS2);
 
-        dev.activate(&ctx.name, b"thunderball")?;
+        dev.add_keyslot(b"thunderball", None, None)?;
+        //dev.activate(&ctx.name, b"thunderball")?;
 
         let manager = LuksManager { dev: Box::new(dev) };
 
-        Ok(manager)
+        Ok((manager, ctx))
     }
 
     #[test]
     fn add_key_luks1() -> Result<()> {
         let key = SensitiveData::try_from("Insecure".as_bytes().to_vec())?;
 
-        let mut dev = create_new_luks1_manager()?;
+        let (mut dev, _ctx) = create_new_luks1_manager()?;
         dev.add_key(key)?;
 
         Ok(())
@@ -114,7 +119,7 @@ mod tests {
     fn add_key_luks2() -> Result<()> {
         let key = SensitiveData::try_from("Insecure".as_bytes().to_vec())?;
 
-        let mut dev = create_new_luks2_manager()?;
+        let (mut dev, _ctx) = create_new_luks2_manager()?;
         dev.add_key(key)?;
 
         Ok(())
