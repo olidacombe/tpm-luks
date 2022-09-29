@@ -40,7 +40,6 @@ mod tests {
     struct TestContext {
         dir: TempDir,
         file: PathBuf,
-        name: String,
     }
 
     impl TestContext {
@@ -49,7 +48,7 @@ mod tests {
             cryptsetup_rs::enable_debug(true);
             let dir = Builder::new().prefix(&name).tempdir().expect("Tempdir!");
             let file = dir.path().join(format!("{}.image", name));
-            TestContext { name, file, dir }
+            TestContext { file, dir }
         }
 
         fn new_crypt_device(&self) -> CryptDeviceFormatBuilder {
