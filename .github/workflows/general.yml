@@ -45,9 +45,6 @@ jobs:
           toolchain: stable
           override: true
 
-      - name: Install libcryptsetup-dev
-        run: sudo apt-get install -y libcryptsetup-dev
-
       - name: Run cargo test
         uses: actions-rs/cargo@v1
         with:
