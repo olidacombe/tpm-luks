@@ -24,6 +24,7 @@ impl LuksManager {
         Ok(self.dev.add_keyslot(key.value(), None, None)?)
     }
     fn activate(&mut self, name: &str, key: &SensitiveData) -> Result<&mut Self> {
+        self.dev.activate(name, key)?;
         Ok(self)
     }
 }
@@ -81,7 +82,6 @@ mod tests {
         assert_eq!(dev.device_type(), crypt_device_type::LUKS1);
 
         dev.add_keyslot(b"thunderdome", None, None)?;
-        //dev.activate(&ctx.name, b"thunderdome")?;
 
         let manager = LuksManager { dev: Box::new(dev) };
 
@@ -101,7 +101,6 @@ mod tests {
         assert_eq!(dev.device_type(), crypt_device_type::LUKS2);
 
         dev.add_keyslot(b"thunderball", None, None)?;
-        //dev.activate(&ctx.name, b"thunderball")?;
 
         let manager = LuksManager { dev: Box::new(dev) };
 
@@ -114,7 +113,6 @@ mod tests {
 
         let (mut dev, _ctx) = create_new_luks1_manager()?;
         dev.add_key(&key)?;
-        dev.activate("add_key_luks1", &key)?;
 
         Ok(())
     }
@@ -125,7 +123,6 @@ mod tests {
 
         let (mut dev, _ctx) = create_new_luks2_manager()?;
         dev.add_key(&key)?;
-        dev.activate("add_key_luks2", &key)?;
 
         Ok(())
     }
