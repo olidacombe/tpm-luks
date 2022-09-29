@@ -16,7 +16,7 @@ swtpm: swtpm-image ## run software tpm service for test interaction
 	sleep 2
 
 ci-image: ## build docker image with necessary dependencies to run CI tasks
-	docker build -t olidacombe/tpm-luks-ci -f Dockerfile-ci .
+	docker build -t olidacombe/tpm-luks-ci --no-cache -f Dockerfile-ci .
 
 dev-image: ci-image swtpm ## build docker image for use as a development environment
 	docker build -t tpm-luks-dev -f Dockerfile-dev .
