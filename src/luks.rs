@@ -20,8 +20,11 @@ pub struct LuksManager {
 }
 
 impl LuksManager {
-    fn add_key(&mut self, key: SensitiveData) -> Result<Keyslot> {
+    fn add_key(&mut self, key: &SensitiveData) -> Result<Keyslot> {
         Ok(self.dev.add_keyslot(key.value(), None, None)?)
+    }
+    fn activate(&mut self, name: &str, key: &SensitiveData) -> Result<&mut Self> {
+        Ok(self)
     }
 }
 
@@ -110,7 +113,8 @@ mod tests {
         let key = SensitiveData::try_from("Insecure".as_bytes().to_vec())?;
 
         let (mut dev, _ctx) = create_new_luks1_manager()?;
-        dev.add_key(key)?;
+        dev.add_key(&key)?;
+        dev.activate("add_key_luks1", &key)?;
 
         Ok(())
     }
@@ -120,7 +124,8 @@ mod tests {
         let key = SensitiveData::try_from("Insecure".as_bytes().to_vec())?;
 
         let (mut dev, _ctx) = create_new_luks2_manager()?;
-        dev.add_key(key)?;
+        dev.add_key(&key)?;
+        dev.activate("add_key_luks2", &key)?;
 
         Ok(())
     }
