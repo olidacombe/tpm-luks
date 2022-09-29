@@ -1,8 +1,4 @@
-use cryptsetup_rs::api::{
-    CryptDeviceFormatBuilder, CryptDeviceType, Keyslot, Luks1CryptDeviceHandle,
-    Luks2CryptDeviceHandle, LuksCryptDevice,
-};
-use cryptsetup_rs::{crypt_device_type, crypt_rng_type};
+use cryptsetup_rs::api::{Keyslot, LuksCryptDevice};
 use thiserror::Error;
 use tss_esapi::structures::SensitiveData;
 
@@ -19,10 +15,10 @@ pub struct LuksManager {
 }
 
 impl LuksManager {
-    fn add_key(&mut self, key: &SensitiveData) -> Result<Keyslot> {
+    pub fn add_key(&mut self, key: &SensitiveData) -> Result<Keyslot> {
         Ok(self.dev.add_keyslot(key.value(), None, None)?)
     }
-    fn activate(&mut self, name: &str, key: &SensitiveData) -> Result<&mut Self> {
+    pub fn activate(&mut self, name: &str, key: &SensitiveData) -> Result<&mut Self> {
         self.dev.activate(name, key)?;
         Ok(self)
     }
@@ -31,14 +27,16 @@ impl LuksManager {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use cryptsetup_rs::api::CryptDeviceFormatBuilder;
+    use cryptsetup_rs::{crypt_device_type, crypt_rng_type, CryptDeviceType};
     use eyre::Result;
     use std::path::PathBuf;
-    use std::{process::Command, sync::Arc};
+    use std::process::Command;
     use tempfile::{Builder, TempDir};
     use uuid::Uuid;
 
     struct TestContext {
-        dir: TempDir,
+        _dir: TempDir,
         file: PathBuf,
     }
 
@@ -48,7 +46,7 @@ mod tests {
             cryptsetup_rs::enable_debug(true);
             let dir = Builder::new().prefix(&name).tempdir().expect("Tempdir!");
             let file = dir.path().join(format!("{}.image", name));
-            TestContext { file, dir }
+            TestContext { file, _dir: dir }
         }
 
         fn new_crypt_device(&self) -> CryptDeviceFormatBuilder {

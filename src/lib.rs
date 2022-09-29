@@ -45,5 +45,5 @@
 //! tpm2_flushcontext session.dat
 //! ```
 
-mod luks;
-mod tpm;
+pub mod luks;
+pub mod tpm;
