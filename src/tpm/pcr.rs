@@ -30,14 +30,41 @@ fn parse_pcr_bank(bank: &str) -> Result<HashingAlgorithm> {
 }
 
 fn parse_slot(slot: &str) -> Result<PcrSlot> {
-    let n = slot
-        .parse::<u8>()
-        .map_err(|_| PcrError::InvalidPcrSlot(slot.to_string()))?;
-    if n > 31 {
-        return Err(PcrError::InvalidPcrSlot(n.to_string()));
+    match slot {
+        "0" => Ok(PcrSlot::Slot0),
+        "1" => Ok(PcrSlot::Slot1),
+        "2" => Ok(PcrSlot::Slot2),
+        "3" => Ok(PcrSlot::Slot3),
+        "4" => Ok(PcrSlot::Slot4),
+        "5" => Ok(PcrSlot::Slot5),
+        "6" => Ok(PcrSlot::Slot6),
+        "7" => Ok(PcrSlot::Slot7),
+        "8" => Ok(PcrSlot::Slot8),
+        "9" => Ok(PcrSlot::Slot9),
+        "10" => Ok(PcrSlot::Slot10),
+        "11" => Ok(PcrSlot::Slot11),
+        "12" => Ok(PcrSlot::Slot12),
+        "13" => Ok(PcrSlot::Slot13),
+        "14" => Ok(PcrSlot::Slot14),
+        "15" => Ok(PcrSlot::Slot15),
+        "16" => Ok(PcrSlot::Slot16),
+        "17" => Ok(PcrSlot::Slot17),
+        "18" => Ok(PcrSlot::Slot18),
+        "19" => Ok(PcrSlot::Slot19),
+        "20" => Ok(PcrSlot::Slot20),
+        "21" => Ok(PcrSlot::Slot21),
+        "22" => Ok(PcrSlot::Slot22),
+        "23" => Ok(PcrSlot::Slot23),
+        "24" => Ok(PcrSlot::Slot24),
+        "25" => Ok(PcrSlot::Slot25),
+        "26" => Ok(PcrSlot::Slot26),
+        "27" => Ok(PcrSlot::Slot27),
+        "28" => Ok(PcrSlot::Slot28),
+        "29" => Ok(PcrSlot::Slot29),
+        "30" => Ok(PcrSlot::Slot30),
+        "31" => Ok(PcrSlot::Slot31),
+        _ => Err(PcrError::InvalidPcrSlot(slot.to_string())),
     }
-    let parsed = PcrSlot::from_u8(n + 1).ok_or_else(|| PcrError::InvalidPcrSlot(n.to_string()))?;
-    Ok(parsed)
 }
 
 fn parse_slots(slots: &str) -> Result<Vec<PcrSlot>> {
