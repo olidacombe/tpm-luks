@@ -64,7 +64,7 @@ impl Cli {
     }
 
     pub fn run(&self) -> Result<&Self> {
-        dbg!(self);
+        log::debug!("{:#?}", self);
         match &self.command {
             Commands::Digest => self.show_pcr_digest(),
             Commands::Seal {
