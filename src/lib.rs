@@ -47,3 +47,4 @@
 
 pub mod luks;
 pub mod tpm;
+pub use self::tpm::pcr;

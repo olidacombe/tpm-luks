@@ -1,4 +1,3 @@
-use num_traits::cast::FromPrimitive;
 use thiserror::Error;
 use tss_esapi::handles::PcrHandle;
 use tss_esapi::interface_types::algorithm::HashingAlgorithm;

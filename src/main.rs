@@ -1,29 +1,14 @@
-use clap::{value_parser, Parser, Subcommand};
+use clap::{Parser, Subcommand};
 use std::path::PathBuf;
-
-#[derive(Debug, Clone)]
-struct Wolf {
-    name: String,
-}
-
-impl From<&str> for Wolf {
-    fn from(name: &str) -> Self {
-        Self {
-            name: name.to_string(),
-        }
-    }
-}
+use tpm_luks::pcr::parse_pcr_selection_list;
+use tss_esapi::structures::PcrSelectionList;
 
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None)]
 struct Cli {
     /// PCRs to use for sealing/unsealing
-    #[arg(short, long, value_name = "PCR List")]
-    pcrs: Option<String>,
-
-    /// Wolf
-    #[arg(short, default_value="Wolfy", value_parser=value_parser!(Wolf))]
-    wolf: Wolf,
+    #[arg(short, long, value_name = "PCR List", default_value="sha1:0,1,2,3,4,7", value_parser=parse_pcr_selection_list)]
+    pcrs: Option<PcrSelectionList>,
 
     /// Luks device
     #[arg(short = 'L', long, value_name = "device")]
