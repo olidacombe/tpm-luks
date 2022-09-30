@@ -1,5 +1,4 @@
 use clap::{Parser, Subcommand};
-use std::path::PathBuf;
 use tpm_luks::pcr::parse_pcr_selection_list;
 use tss_esapi::structures::PcrSelectionList;
 
@@ -10,9 +9,9 @@ struct Cli {
     #[arg(short, long, value_name = "PCR List", default_value="sha1:0,1,2,3,4,7", value_parser=parse_pcr_selection_list)]
     pcrs: PcrSelectionList,
 
-    /// TPM device
-    #[arg(short, long, value_name = "device", default_value = "/dev/tpmrm0")]
-    tpm_dev: PathBuf,
+    /// TPM device specified in TCTI format
+    #[arg(short = 'T', long, default_value = "device:/dev/tpmrm0", env = "TCTI")]
+    tcti: String,
 
     #[command(subcommand)]
     command: Commands,

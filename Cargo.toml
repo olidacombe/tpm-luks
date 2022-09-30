@@ -8,7 +8,7 @@ license = "MIT OR Apache-2.0"
 
 [dependencies]
 ambassador = "0.3.4"
-clap = { version = "4.0.4", features = ["derive"] }
+clap = { version = "4.0.4", features = ["derive", "env"] }
 cryptsetup-rs = "0.3.2"
 once_cell = "1.13.0"
 thiserror = "1.0.32"
