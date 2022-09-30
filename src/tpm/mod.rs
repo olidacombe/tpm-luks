@@ -105,6 +105,11 @@ impl<C: TContext, S: ContextState> Ctx<C, S> {
         }
         Ok(())
     }
+
+    pub fn get_random(&mut self, num_bytes: usize) -> Result<Digest> {
+        Ok(self.ctx.get_random(num_bytes)?)
+    }
+
     fn make_session(&mut self, t: SessionType) -> Result<AuthSession> {
         let session = self
             .ctx
@@ -406,6 +411,21 @@ pub fn get_context() -> Result<InitialContext> {
 pub fn get_pcr_digest(pcr_selection_list: &PcrSelectionList) -> Result<String> {
     let digest = get_context()?.pcr_digest(pcr_selection_list, HashingAlgorithm::Sha256)?;
     Ok(hex::encode(digest.value()))
+}
+
+pub fn seal_random_passphrase(
+    opts: PcrPolicyOptions,
+    length: usize,
+    handle: PersistentTpmHandle,
+) -> Result<SensitiveData> {
+    let mut ctx = get_context()?;
+    let passphrase = SensitiveData::try_from(ctx.get_random(length)?.value())?;
+
+    ctx.create_primary()?
+        .with_pcr_policy(opts)?
+        .seal(passphrase.clone(), handle)?;
+
+    Ok(passphrase)
 }
 
 #[cfg(test)]
