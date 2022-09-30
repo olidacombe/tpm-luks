@@ -1,13 +1,15 @@
 use crate::pcr::{parse_pcr_selection_list, PcrPolicyOptions};
 use crate::tpm::get_pcr_digest;
 use clap::{Parser, Subcommand};
-use eyre::Result;
+use eyre::{eyre, Result};
+use std::convert::TryInto;
 use std::env;
 use std::path::PathBuf;
-use tss_esapi::structures::Digest;
-use tss_esapi::structures::PcrSelectionList;
+use tss_esapi::handles::PersistentTpmHandle;
+use tss_esapi::structures::{Digest, PcrSelectionList};
 
 const TPM_ENV_VAR: &'static str = "TCTI";
+const DEFAULT_PERSISTENT_HANDLE: &'static str = "0x81000000";
 
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None)]
@@ -35,12 +37,20 @@ enum Commands {
         /// PCR digest
         #[arg(short, long, value_name = "hex digest", value_parser = digest_from_hex_string)]
         pcr_digest: Option<Digest>,
+
+        /// Storage handle for keeping the LUKS key in the TPM
+        #[arg(short, long, value_name = "handle", value_parser = handle_from_hex_string, default_value = DEFAULT_PERSISTENT_HANDLE)]
+        handle: PersistentTpmHandle,
     },
     /// Unseal a key from the TPM and use to activate a LUKS device
     Unseal {
         /// LUKS device path
         #[arg(value_name = "dev")]
         luks_dev: PathBuf,
+
+        /// TPM persistent storage handle from which to retrieve the LUKS key
+        #[arg(short, long, value_name = "handle", value_parser = handle_from_hex_string, default_value = DEFAULT_PERSISTENT_HANDLE)]
+        handle: PersistentTpmHandle,
     },
     /// Show PCR digest for current running system
     Digest,
@@ -60,8 +70,9 @@ impl Cli {
             Commands::Seal {
                 luks_dev,
                 pcr_digest,
+                handle,
             } => self.seal(&luks_dev, pcr_digest),
-            Commands::Unseal { luks_dev } => self.unseal(&luks_dev),
+            Commands::Unseal { luks_dev, handle } => self.unseal(&luks_dev),
         }?;
         Ok(self)
     }
@@ -86,4 +97,39 @@ impl Cli {
 
 fn digest_from_hex_string(s: &str) -> Result<Digest> {
     Ok(Digest::try_from(hex::decode(s)?)?)
+}
+
+/// Get a PersistentTpmHandle from a hex string representation
+fn handle_from_hex_string(s: &str) -> Result<PersistentTpmHandle> {
+    let v = hex::decode(s.to_lowercase().trim_start_matches("0x"))?;
+    if v.len() != 4 {
+        return Err(eyre!("Persistent handle must be 4 bytes, got `{}`", s));
+    }
+
+    // looks like Vec to array APIs are experimental only at the moment
+    // so preallocate an array, and copy over
+    let mut a: [u8; 4] = [0; 4];
+    a.copy_from_slice(v.as_slice());
+    dbg!(a);
+
+    let u = u32::from_be_bytes(a.clone());
+    Ok(PersistentTpmHandle::new(u32::from_be_bytes(a))?)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use eyre::Result;
+
+    #[test]
+    fn happy_handle_from_string() -> Result<()> {
+        handle_from_hex_string("81000000")?;
+        Ok(())
+    }
+
+    #[test]
+    fn happy_handle_from_0x_prefix_string() -> Result<()> {
+        handle_from_hex_string("0x81000000")?;
+        Ok(())
+    }
 }
