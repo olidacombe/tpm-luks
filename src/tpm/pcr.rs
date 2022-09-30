@@ -25,6 +25,7 @@ pub type Result<T, E = PcrError> = core::result::Result<T, E>;
 fn parse_pcr_bank(bank: &str) -> Result<HashingAlgorithm> {
     match bank {
         "sha1" => Ok(HashingAlgorithm::Sha1),
+        "sha256" => Ok(HashingAlgorithm::Sha256),
         _ => Err(PcrError::InvalidPcrBank(bank.to_string())),
     }
 }
@@ -211,6 +212,24 @@ mod tests {
             )
             .build()?;
         let parsed = parse_pcr_selection_list("sha1:0,1,9")?;
+        assert_eq!(expected, parsed);
+        Ok(())
+    }
+
+    #[test]
+    fn parse_happy_sha256() -> Result<()> {
+        let expected = PcrSelectionList::builder()
+            .with_selection(HashingAlgorithm::Sha256, &[PcrSlot::Slot1])
+            .build()?;
+        let parsed = parse_pcr_selection_list("sha256:1")?;
+        assert_eq!(expected, parsed);
+        let expected = PcrSelectionList::builder()
+            .with_selection(
+                HashingAlgorithm::Sha256,
+                &[PcrSlot::Slot0, PcrSlot::Slot1, PcrSlot::Slot9],
+            )
+            .build()?;
+        let parsed = parse_pcr_selection_list("sha256:0,1,9")?;
         assert_eq!(expected, parsed);
         Ok(())
     }
