@@ -1,3 +1,4 @@
+use num_traits::cast::FromPrimitive;
 use thiserror::Error;
 use tss_esapi::handles::PcrHandle;
 use tss_esapi::interface_types::algorithm::HashingAlgorithm;
@@ -29,7 +30,14 @@ fn parse_pcr_bank(bank: &str) -> Result<HashingAlgorithm> {
 }
 
 fn parse_slot(slot: &str) -> Result<PcrSlot> {
-    Ok(PcrSlot::Slot0)
+    let n = slot
+        .parse::<u8>()
+        .map_err(|_| PcrError::InvalidPcrSlot(slot.to_string()))?;
+    if n > 31 {
+        return Err(PcrError::InvalidPcrSlot(n.to_string()));
+    }
+    let parsed = PcrSlot::from_u8(n + 1).ok_or_else(|| PcrError::InvalidPcrSlot(n.to_string()))?;
+    Ok(parsed)
 }
 
 fn parse_slots(slots: &str) -> Result<Vec<PcrSlot>> {
@@ -172,10 +180,10 @@ mod tests {
         let expected = PcrSelectionList::builder()
             .with_selection(
                 HashingAlgorithm::Sha1,
-                &[PcrSlot::Slot0, PcrSlot::Slot2, PcrSlot::Slot9],
+                &[PcrSlot::Slot0, PcrSlot::Slot1, PcrSlot::Slot9],
             )
             .build()?;
-        let parsed = parse_pcr_selection_list("sha1:0,2,9")?;
+        let parsed = parse_pcr_selection_list("sha1:0,1,9")?;
         assert_eq!(expected, parsed);
         Ok(())
     }
