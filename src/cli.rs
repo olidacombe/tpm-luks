@@ -50,9 +50,9 @@ impl Cli {
     pub fn run(&self) -> Result<&Self> {
         dbg!(self);
         match &self.command {
-            Digest => self.show_pcr_digest()?,
-            Seal => todo!(),
-            Unseal => todo!(),
+            Commands::Digest => self.show_pcr_digest()?,
+            Commands::Seal { luks_dev } => todo!(),
+            Commands::Unseal { luks_dev } => todo!(),
         };
         Ok(self)
     }
