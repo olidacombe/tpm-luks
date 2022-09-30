@@ -425,6 +425,9 @@ pub fn seal_random_passphrase(
         .with_pcr_policy(opts)?
         .seal(passphrase.clone(), handle)?;
 
+    let u: u32 = handle.into();
+    log::info!("Sealed random passphrase at {:#10x}", u);
+
     Ok(passphrase)
 }
 
