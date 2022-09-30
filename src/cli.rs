@@ -1,5 +1,5 @@
 use crate::pcr::{parse_pcr_selection_list, PcrPolicyOptions};
-use crate::tpm::get_pcr_digest;
+use crate::tpm::{get_pcr_digest, seal_random_passphrase};
 use clap::{Parser, Subcommand};
 use eyre::{eyre, Result};
 use std::convert::TryInto;
@@ -39,7 +39,7 @@ enum Commands {
         pcr_digest: Option<Digest>,
 
         /// Storage handle for keeping the LUKS key in the TPM
-        #[arg(short, long, value_name = "handle", value_parser = handle_from_hex_string, default_value = DEFAULT_PERSISTENT_HANDLE)]
+        #[arg(short = 's', long, value_name = "handle", value_parser = handle_from_hex_string, default_value = DEFAULT_PERSISTENT_HANDLE)]
         handle: PersistentTpmHandle,
     },
     /// Unseal a key from the TPM and use to activate a LUKS device
@@ -49,7 +49,7 @@ enum Commands {
         luks_dev: PathBuf,
 
         /// TPM persistent storage handle from which to retrieve the LUKS key
-        #[arg(short, long, value_name = "handle", value_parser = handle_from_hex_string, default_value = DEFAULT_PERSISTENT_HANDLE)]
+        #[arg(short = 's', long, value_name = "handle", value_parser = handle_from_hex_string, default_value = DEFAULT_PERSISTENT_HANDLE)]
         handle: PersistentTpmHandle,
     },
     /// Show PCR digest for current running system
@@ -71,17 +71,23 @@ impl Cli {
                 luks_dev,
                 pcr_digest,
                 handle,
-            } => self.seal(&luks_dev, pcr_digest),
+            } => self.seal(&luks_dev, pcr_digest, handle.clone()),
             Commands::Unseal { luks_dev, handle } => self.unseal(&luks_dev),
         }?;
         Ok(self)
     }
 
-    fn seal(&self, luks_dev_path: &PathBuf, pcr_digest: &Option<Digest>) -> Result<()> {
+    fn seal(
+        &self,
+        luks_dev_path: &PathBuf,
+        pcr_digest: &Option<Digest>,
+        handle: PersistentTpmHandle,
+    ) -> Result<()> {
         let opts = PcrPolicyOptions {
             digest: pcr_digest.clone(),
             pcr_selection_list: self.pcrs.clone(),
         };
+        let passphrase = seal_random_passphrase(opts, 32, handle)?;
         Ok(())
     }
 
@@ -110,7 +116,6 @@ fn handle_from_hex_string(s: &str) -> Result<PersistentTpmHandle> {
     // so preallocate an array, and copy over
     let mut a: [u8; 4] = [0; 4];
     a.copy_from_slice(v.as_slice());
-    dbg!(a);
 
     let u = u32::from_be_bytes(a.clone());
     Ok(PersistentTpmHandle::new(u32::from_be_bytes(a))?)
