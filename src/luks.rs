@@ -1,5 +1,8 @@
-use cryptsetup_rs::api::{CryptDeviceHandle, Keyslot, LuksCryptDevice};
+use cryptsetup_rs::api::{
+    CryptDeviceHandle, Keyslot, Luks1CryptDeviceHandle, Luks2CryptDeviceHandle, LuksCryptDevice,
+};
 use cryptsetup_rs::open;
+use either::{for_both, Either};
 use std::fmt::Debug;
 use std::path::PathBuf;
 use thiserror::Error;
@@ -18,6 +21,11 @@ pub struct LuksManager {
 }
 
 impl LuksManager {
+    pub fn new(path: &PathBuf) -> Result<Self> {
+        let dev = open(path)?.luks()?;
+        let dev: Box<dyn LuksCryptDevice> = for_both!(dev, d => Box::new(d));
+        Ok(Self { dev })
+    }
     pub fn add_key(&mut self, key: &SensitiveData) -> Result<Keyslot> {
         Ok(self.dev.add_keyslot(key.value(), None, None)?)
     }
@@ -29,6 +37,7 @@ impl LuksManager {
 
 pub fn add_key_to_device(device_path: &PathBuf, key: SensitiveData) -> Result<()> {
     log::debug!("Attempting to get LUKS device `{}`", device_path.display());
+    let manager = LuksManager::new(device_path)?;
     Ok(())
 }
 
