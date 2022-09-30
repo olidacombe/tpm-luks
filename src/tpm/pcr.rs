@@ -9,9 +9,21 @@ pub enum PcrError {
     InvalidBank,
     #[error("empty PCR selection list, expected at least on selection")]
     EmptyPcrSelectionList,
+    #[error("invalid PCR selection list specification")]
+    InvalidPcrSelectionString(String),
+    #[error(transparent)]
+    TssEsapi(#[from] tss_esapi::Error),
 }
 
 pub type Result<T, E = PcrError> = core::result::Result<T, E>;
+
+pub fn parse_pcr_selection_list(expression: &str) -> Result<PcrSelectionList> {
+    let (bank, slots) = expression
+        .split_once(':')
+        .ok_or_else(|| PcrError::InvalidPcrSelectionString(expression.to_owned()))?;
+    let builder = PcrSelectionList::builder();
+    Ok(builder.build()?)
+}
 
 pub fn pcr_slot_to_handle(slot: &PcrSlot) -> PcrHandle {
     match slot {
@@ -89,7 +101,15 @@ mod tests {
     use eyre::Result;
 
     #[test]
-    fn testy() -> Result<()> {
+    fn happy_sha1() -> Result<()> {
+        let expected = PcrSelectionList::builder()
+            .with_selection(
+                HashingAlgorithm::Sha1,
+                &[PcrSlot::Slot0, PcrSlot::Slot2, PcrSlot::Slot9],
+            )
+            .build()?;
+        let parsed = parse_pcr_selection_list("sha1:0,2,9")?;
+        assert_eq!(expected, parsed);
         Ok(())
     }
 }
