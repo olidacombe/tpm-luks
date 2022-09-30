@@ -1,3 +1,4 @@
+use crate::luks::add_key_to_device;
 use crate::pcr::{parse_pcr_selection_list, PcrPolicyOptions};
 use crate::tpm::{get_pcr_digest, seal_random_passphrase};
 use clap::{Parser, Subcommand};
@@ -88,6 +89,7 @@ impl Cli {
             pcr_selection_list: self.pcrs.clone(),
         };
         let passphrase = seal_random_passphrase(opts, 32, handle)?;
+        add_key_to_device(luks_dev_path, passphrase)?;
         Ok(())
     }
 

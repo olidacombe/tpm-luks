@@ -1,4 +1,7 @@
-use cryptsetup_rs::api::{Keyslot, LuksCryptDevice};
+use cryptsetup_rs::api::{CryptDeviceHandle, Keyslot, LuksCryptDevice};
+use cryptsetup_rs::open;
+use std::fmt::Debug;
+use std::path::PathBuf;
 use thiserror::Error;
 use tss_esapi::structures::SensitiveData;
 
@@ -22,6 +25,11 @@ impl LuksManager {
         self.dev.activate(name, key)?;
         Ok(self)
     }
+}
+
+pub fn add_key_to_device(device_path: &PathBuf, key: SensitiveData) -> Result<()> {
+    log::debug!("Attempting to get LUKS device `{}`", device_path.display());
+    Ok(())
 }
 
 #[cfg(test)]
