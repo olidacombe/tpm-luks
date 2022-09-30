@@ -1,6 +1,18 @@
+use clap::{value_parser, Parser, Subcommand};
 use std::path::PathBuf;
 
-use clap::{Parser, Subcommand};
+#[derive(Debug, Clone)]
+struct Wolf {
+    name: String,
+}
+
+impl From<&str> for Wolf {
+    fn from(name: &str) -> Self {
+        Self {
+            name: name.to_string(),
+        }
+    }
+}
 
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None)]
@@ -9,9 +21,17 @@ struct Cli {
     #[arg(short, long, value_name = "PCR List")]
     pcrs: Option<String>,
 
+    /// Wolf
+    #[arg(short, default_value="Wolfy", value_parser=value_parser!(Wolf))]
+    wolf: Wolf,
+
     /// Luks device
-    #[arg(short, long, value_name = "device")]
-    dev: PathBuf,
+    #[arg(short = 'L', long, value_name = "device")]
+    luks_dev: PathBuf,
+
+    /// TPM device
+    #[arg(short, long, value_name = "device", default_value = "/dev/tpmrm0")]
+    tpm_dev: PathBuf,
 
     #[command(subcommand)]
     command: Commands,
