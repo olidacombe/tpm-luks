@@ -1,4 +1,5 @@
 use ambassador::{delegatable_trait, Delegate};
+use hex;
 use once_cell::sync::Lazy;
 use pcr::{pcr_slot_to_handle, PcrPolicyOptions};
 use std::ops::{Deref, DerefMut};
@@ -394,13 +395,17 @@ static CONTEXT: Lazy<Mutex<tss_esapi::Context>> = Lazy::new(|| {
 pub fn get_context() -> Result<InitialContext> {
     let mut ctx = CONTEXT.lock().unwrap();
     ctx.startup(StartupType::Clear)?;
-    //ctx.clear_sessions();
     let mut ctx = Ctx {
         ctx,
         state: Initial {},
     };
     ctx.flush_transient()?;
     Ok(ctx)
+}
+
+pub fn get_pcr_digest(pcr_selection_list: &PcrSelectionList) -> Result<String> {
+    let digest = get_context()?.pcr_digest(pcr_selection_list, HashingAlgorithm::Sha256)?;
+    Ok(hex::encode(digest.value()))
 }
 
 #[cfg(test)]
