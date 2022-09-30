@@ -3,26 +3,49 @@ use tss_esapi::handles::PcrHandle;
 use tss_esapi::interface_types::algorithm::HashingAlgorithm;
 use tss_esapi::structures::{Digest, PcrSelectionList, PcrSlot};
 
-#[derive(Error, Debug)]
+#[derive(Error, Debug, PartialEq)]
 pub enum PcrError {
     #[error("invalid bank")]
     InvalidBank,
     #[error("empty PCR selection list, expected at least on selection")]
     EmptyPcrSelectionList,
-    #[error("invalid PCR selection list specification")]
+    #[error("invalid PCR selection list specification `{0}`")]
     InvalidPcrSelectionString(String),
+    #[error("invalid PCR bank `{0}`")]
+    InvalidPcrBank(String),
+    #[error("invalid PCR slot `{0}`")]
+    InvalidPcrSlot(String),
     #[error(transparent)]
     TssEsapi(#[from] tss_esapi::Error),
 }
 
 pub type Result<T, E = PcrError> = core::result::Result<T, E>;
 
+fn parse_pcr_bank(bank: &str) -> Result<HashingAlgorithm> {
+    match bank {
+        "sha1" => Ok(HashingAlgorithm::Sha1),
+        _ => Err(PcrError::InvalidPcrBank(bank.to_string())),
+    }
+}
+
+fn parse_slot(slot: &str) -> Result<PcrSlot> {
+    Ok(PcrSlot::Slot0)
+}
+
+fn parse_slots(slots: &str) -> Result<Vec<PcrSlot>> {
+    slots.split(',').map(parse_slot).collect()
+}
+
 pub fn parse_pcr_selection_list(expression: &str) -> Result<PcrSelectionList> {
     let (bank, slots) = expression
         .split_once(':')
         .ok_or_else(|| PcrError::InvalidPcrSelectionString(expression.to_owned()))?;
-    let builder = PcrSelectionList::builder();
-    Ok(builder.build()?)
+    let hash_algorithm = parse_pcr_bank(bank)?;
+    let slots = parse_slots(slots)?;
+    let selections = PcrSelectionList::builder()
+        .with_selection(hash_algorithm, slots.as_slice())
+        .build()?;
+    Ok(selections)
 }
 
 pub fn pcr_slot_to_handle(slot: &PcrSlot) -> PcrHandle {
@@ -101,7 +124,51 @@ mod tests {
     use eyre::Result;
 
     #[test]
-    fn happy_sha1() -> Result<()> {
+    fn parse_no_bank_delimiter() {
+        let parsed = parse_pcr_selection_list("1,2,3");
+        assert_eq!(
+            parsed,
+            Err(PcrError::InvalidPcrSelectionString("1,2,3".to_string()))
+        );
+    }
+
+    #[test]
+    fn parse_no_bank() {
+        let parsed = parse_pcr_selection_list(":1,2,3");
+        assert_eq!(parsed, Err(PcrError::InvalidPcrBank("".to_string())));
+    }
+
+    #[test]
+    fn parse_bad_bank() {
+        let parsed = parse_pcr_selection_list("bunk:1,2,3");
+        assert_eq!(parsed, Err(PcrError::InvalidPcrBank("bunk".to_string())));
+    }
+
+    #[test]
+    fn parse_no_selections() {
+        let parsed = parse_pcr_selection_list("sha1:");
+        assert!(parsed.is_err());
+    }
+
+    #[test]
+    fn parse_bad_slot() {
+        let parsed = parse_pcr_selection_list("sha1:1,bad,2");
+        assert_eq!(parsed, Err(PcrError::InvalidPcrSlot("bad".to_string())));
+    }
+
+    #[test]
+    fn parse_out_of_range_slot() {
+        let parsed = parse_pcr_selection_list("sha1:1,32");
+        assert_eq!(parsed, Err(PcrError::InvalidPcrSlot("32".to_string())));
+    }
+
+    #[test]
+    fn parse_happy_sha1() -> Result<()> {
+        let expected = PcrSelectionList::builder()
+            .with_selection(HashingAlgorithm::Sha1, &[PcrSlot::Slot1])
+            .build()?;
+        let parsed = parse_pcr_selection_list("sha1:1")?;
+        assert_eq!(expected, parsed);
         let expected = PcrSelectionList::builder()
             .with_selection(
                 HashingAlgorithm::Sha1,
