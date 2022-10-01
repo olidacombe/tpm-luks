@@ -8,6 +8,8 @@ LUKS_DEV=/dev/mapper/$LUKS_NAME
 MNT=mnt
 KEY_FILE=disk.key
 
+RUST_LOG=debug
+
 teardown() {
 	sudo umount $MNT || true
 	sudo cryptsetup remove $LUKS_NAME || true
