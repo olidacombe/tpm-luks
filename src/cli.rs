@@ -1,6 +1,6 @@
 use crate::luks::add_key_to_device;
 use crate::pcr::{parse_pcr_selection_list, PcrPolicyOptions};
-use crate::tpm::{get_pcr_digest, seal_random_passphrase};
+use crate::tpm::{get_pcr_digest, get_sealed_passphrase, seal_random_passphrase};
 use clap::{Parser, Subcommand};
 use eyre::{eyre, Result};
 use std::convert::TryInto;
@@ -81,7 +81,7 @@ impl Cli {
                 luks_dev,
                 luks_dev_name,
                 handle,
-            } => self.unseal(&luks_dev),
+            } => self.unseal(&luks_dev, luks_dev_name.as_str(), handle.clone()),
         }?;
         Ok(self)
     }
@@ -101,7 +101,13 @@ impl Cli {
         Ok(())
     }
 
-    fn unseal(&self, luks_dev_path: &PathBuf) -> Result<()> {
+    fn unseal(
+        &self,
+        luks_dev_path: &PathBuf,
+        luks_dev_name: &str,
+        handle: PersistentTpmHandle,
+    ) -> Result<()> {
+        let passphrase = get_sealed_passphrase(self.pcrs.clone(), handle)?;
         Ok(())
     }
 

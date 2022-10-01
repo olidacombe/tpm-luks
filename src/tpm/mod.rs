@@ -431,6 +431,17 @@ pub fn seal_random_passphrase(
     Ok(passphrase)
 }
 
+pub fn get_sealed_passphrase(
+    pcr_selection_list: PcrSelectionList,
+    handle: PersistentTpmHandle,
+) -> Result<SensitiveData> {
+    let passphrase = get_context()?
+        .pcr_auth(pcr_selection_list)?
+        .unseal(handle)?;
+
+    Ok(passphrase)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
