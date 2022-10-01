@@ -36,21 +36,25 @@ enum Commands {
         luks_dev: PathBuf,
 
         /// PCR digest
-        #[arg(short, long, value_name = "hex digest", value_parser = digest_from_hex_string)]
+        #[arg(short = 'D', long, value_name = "digest", value_parser = digest_from_hex_string)]
         pcr_digest: Option<Digest>,
 
         /// Storage handle for keeping the LUKS key in the TPM
-        #[arg(short = 's', long, value_name = "handle", value_parser = handle_from_hex_string, default_value = DEFAULT_PERSISTENT_HANDLE)]
+        #[arg(short = 'H', long, value_name = "handle", value_parser = handle_from_hex_string, default_value = DEFAULT_PERSISTENT_HANDLE)]
         handle: PersistentTpmHandle,
     },
-    /// Unseal a key from the TPM and use to activate a LUKS device
+    /// Unseal a key from the TPM and use to open a LUKS device
     Unseal {
         /// LUKS device path
         #[arg(value_name = "dev")]
         luks_dev: PathBuf,
 
+        /// LUKS device name
+        #[arg(value_name = "name")]
+        luks_dev_name: String,
+
         /// TPM persistent storage handle from which to retrieve the LUKS key
-        #[arg(short = 's', long, value_name = "handle", value_parser = handle_from_hex_string, default_value = DEFAULT_PERSISTENT_HANDLE)]
+        #[arg(short = 'H', long, value_name = "handle", value_parser = handle_from_hex_string, default_value = DEFAULT_PERSISTENT_HANDLE)]
         handle: PersistentTpmHandle,
     },
     /// Show PCR digest for current running system
@@ -73,7 +77,11 @@ impl Cli {
                 pcr_digest,
                 handle,
             } => self.seal(&luks_dev, pcr_digest, handle.clone()),
-            Commands::Unseal { luks_dev, handle } => self.unseal(&luks_dev),
+            Commands::Unseal {
+                luks_dev,
+                luks_dev_name,
+                handle,
+            } => self.unseal(&luks_dev),
         }?;
         Ok(self)
     }
