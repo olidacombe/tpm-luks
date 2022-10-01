@@ -97,7 +97,11 @@ impl Cli {
             pcr_selection_list: self.pcrs.clone(),
         };
         let passphrase = seal_random_passphrase(opts, 32, handle)?;
-        add_key_to_device(luks_dev_path, passphrase)?;
+        let prev_key = env::var("PASSPHRASE")
+            .ok()
+            .map(|p| p.as_bytes().try_into().ok())
+            .flatten();
+        add_key_to_device(luks_dev_path, passphrase, prev_key)?;
         Ok(())
     }
 

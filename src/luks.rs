@@ -25,17 +25,21 @@ impl LuksManager {
         self.dev.activate(name, key)?;
         Ok(self)
     }
-    pub fn add_key(&mut self, key: SensitiveData) -> Result<&mut Self> {
-        let keyslot = self.dev.add_keyslot(key.value(), None, None)?;
+    pub fn add_key(
+        &mut self,
+        key: SensitiveData,
+        prev_key: Option<SensitiveData>,
+    ) -> Result<&mut Self> {
+        let keyslot =
+            self.dev
+                .add_keyslot(key.value(), prev_key.as_ref().map(|k| k.value()), None)?;
         log::debug!("Added key to slot {}", keyslot);
-        self.dev.dump();
         Ok(self)
     }
     pub fn new(path: &PathBuf) -> Result<Self> {
         log::debug!("Attempting to get LUKS device `{}`", path.display());
         let dev = open(path)?.luks()?;
         let dev: Box<dyn LuksCryptDevice> = for_both!(dev, d => Box::new(d));
-        dev.dump();
         Ok(Self { dev })
     }
     pub fn open(&mut self, key: SensitiveData, name: &str) -> Result<&mut Self> {
@@ -44,9 +48,13 @@ impl LuksManager {
     }
 }
 
-pub fn add_key_to_device(device_path: &PathBuf, key: SensitiveData) -> Result<()> {
+pub fn add_key_to_device(
+    device_path: &PathBuf,
+    key: SensitiveData,
+    prev_key: Option<SensitiveData>,
+) -> Result<()> {
     let mut manager = LuksManager::new(device_path)?;
-    manager.add_key(key)?;
+    manager.add_key(key, prev_key)?;
     Ok(())
 }
 
@@ -146,7 +154,7 @@ mod tests {
         let key = SensitiveData::try_from("Insecure".as_bytes().to_vec())?;
 
         let (mut dev, _ctx) = create_new_luks1_manager()?;
-        dev.add_key(key)?;
+        dev.add_key(key, None)?;
 
         Ok(())
     }
@@ -156,7 +164,7 @@ mod tests {
         let key = SensitiveData::try_from("Insecure".as_bytes().to_vec())?;
 
         let (mut dev, _ctx) = create_new_luks2_manager()?;
-        dev.add_key(key)?;
+        dev.add_key(key, None)?;
 
         Ok(())
     }

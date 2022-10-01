@@ -2,11 +2,10 @@
 
 set -xeuo pipefail
 
-DISK=crypy.img
 LUKS_NAME=crypty
+DISK=${LUKS_NAME}.img
 LUKS_DEV=/dev/mapper/$LUKS_NAME
 MNT=mnt
-KEY_FILE=disk.key
 
 RUST_LOG=debug
 
@@ -20,12 +19,11 @@ trap teardown EXIT
 setup() {
 	rm -f $DISK
 	fallocate -l 20MiB $DISK
-	dd if=/dev/urandom of=$KEY_FILE bs=1 count=32
+	export PASSPHRASE=$(openssl rand -base64 33)
 	loopdevice=$(losetup -f)
 	sudo losetup $loopdevice $DISK
-	sudo cryptsetup luksFormat -q --key-file=$KEY_FILE $loopdevice
-
-	sudo cryptsetup luksOpen --key-file=$KEY_FILE $loopdevice $LUKS_NAME
+	echo -n "$PASSPHRASE" | sudo cryptsetup luksFormat -q $loopdevice -
+	echo -n "$PASSPHRASE" | sudo cryptsetup luksOpen $loopdevice $LUKS_NAME -
 	sudo mkfs.ext4 -j $LUKS_DEV
 	mkdir -p $MNT
 	sudo mount $LUKS_DEV $MNT
@@ -37,7 +35,8 @@ setup() {
 
 seal() {
 	setup
-	sudo $tpm_luks seal $loopdevice
+	echo "using existing $PASSPHRASE to add second key"
+	sudo PASSPHRASE=$PASSPHRASE $tpm_luks seal $loopdevice
 	teardown
 }
 
