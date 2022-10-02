@@ -31,4 +31,3 @@ env_logger = "0.9.1"
 version = "1"
 default-features = false
 features = ["user-hooks"]
-

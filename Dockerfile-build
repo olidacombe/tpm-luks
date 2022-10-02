@@ -1,47 +1,17 @@
-FROM ubuntu:22.04
+FROM alpine:latest
 
-RUN apt-get update
-RUN apt-get install -y \
-	build-essential \
+RUN apk add --no-cache \
+alpine-sdk \
 	curl \
 	git \
-	libcryptsetup-dev \
-	libtss2-dev \
-	musl-dev \
-	musl-tools \
-	pkg-config \
-	swtpm \
-	swtpm-tools \
-	tss2 \
-	  zlib1g-dev \
   cmake \
   make \
   g++ \
-  curl \
-  ca-certificates \
-  xutils-dev \
-  libpq-dev \
-  libssl-dev \ 
-    autoconf-archive \
-  libcmocka0 \
-  libcmocka-dev \
-  procps \
+    autoconf \
   iproute2 \
-  build-essential \
-  git \
-  pkg-config \
   gcc \
   libtool \
-  automake \
-  libssl-dev \
-  uthash-dev \
-  autoconf \
-  doxygen \
-  libjson-c-dev \
-  libini-config-dev \
-  libcurl4-openssl-dev \
-  libltdl-dev \
-  --no-install-recommends
+  automake
 
 ENV MUSL_PREFIX=/musl
 RUN mkdir /workdir && mkdir $MUSL_PREFIX
@@ -78,9 +48,12 @@ ENV PATH=/root/.cargo/bin:$PATH
 # Installing the musl target!
 RUN rustup target add x86_64-unknown-linux-musl
 
+#RUN echo "[target.x86_64-unknown-linux-musl]\nlinker = \"musl-gcc\"" > ${HOME}/.cargo/config
+
 ENV PATH=$MUSL_PREFIX/bin:$PATH \
     TARGET=x86_64_unknown_linux_musl \
     HOST=x86_64_unknown_linux_gnu \
+    CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_LINKER=musl-gcc \
     PKG_CONFIG_ALLOW_CROSS=1 \
     PKG_CONFIG_ALL_STATIC=true \
     PKG_CONFIG_PATH_x86_64_unknown_linux_musl=$MUSL_PREFIX/lib/pkgconfig \
