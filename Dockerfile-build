@@ -35,7 +35,7 @@ RUN curl -sL https://github.com/tpm2-software/tpm2-tss/archive/refs/tags/${TPM2_
 
 
 RUN cd tpm2-tss-$TPM2_TSS_VER && \
-    sed -e "/AC_INIT(/"'!'"b;n;c[${TPM2_TSS_VER}]" && \
+    sed -i "/AC_INIT/!b;n;c[${TPM2_TSS_VER}]," configure.ac && \
     ./bootstrap && \
     LDFLAGS="-L${MUSL_PREFIX}/lib/" CFLAGS="-I${MUSL_PREFIX}/include" ./configure --enable-fapi=no --enable-shared=no \
         LIBCRYPTO_CFLAGS="-I${MUSL_PREFIX}/ssl/include" LIBCRYPTO_LIBS="-L${MUSL_PREFIX}/ssl/lib -lcrypto" && \
@@ -47,8 +47,6 @@ RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
 
 # .cargo/bin in PATH is needed for running cargo, rustup etc.
 ENV PATH=/root/.cargo/bin:$PATH
-
-RUN rustc -vV
 
 # Installing the musl target!
 #RUN rustup target add x86_64-unknown-linux-musl
