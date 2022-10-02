@@ -22,6 +22,25 @@ RUN apt-get install -y \
   xutils-dev \
   libpq-dev \
   libssl-dev \ 
+    autoconf-archive \
+  libcmocka0 \
+  libcmocka-dev \
+  procps \
+  iproute2 \
+  build-essential \
+  git \
+  pkg-config \
+  gcc \
+  libtool \
+  automake \
+  libssl-dev \
+  uthash-dev \
+  autoconf \
+  doxygen \
+  libjson-c-dev \
+  libini-config-dev \
+  libcurl4-openssl-dev \
+  libltdl-dev \
   --no-install-recommends
 
 ENV MUSL_PREFIX=/musl
@@ -36,6 +55,16 @@ ENV OPENSSL_VER="1.1.1q"
 RUN curl -sL https://www.openssl.org/source/openssl-${OPENSSL_VER}.tar.gz | tar xz
 
 RUN cd openssl-${OPENSSL_VER} && \
-    CC="musl-gcc -fPIE -pie" LDFLAGS="-L/musl/lib/" CFLAGS="-I/musl/include" ./Configure no-shared no-async --prefix=$MUSL_PREFIX --openssldir=$MUSL_PREFIX/ssl linux-x86_64 && \
+    CC="musl-gcc -fPIE -pie" LDFLAGS="-L${MUSL_PREFIX}/lib/" CFLAGS="-I${MUSL_PREFIX}/include" ./Configure no-shared no-async --prefix=$MUSL_PREFIX --openssldir=${MUSL_PREFIX}/ssl linux-x86_64 && \
     make depend && make -j$(nproc) && make install_sw
 
+ENV TPM2_TSS_VER="3.2.0"
+RUN curl -sL https://github.com/tpm2-software/tpm2-tss/archive/refs/tags/${TPM2_TSS_VER}.tar.gz | tar xz
+
+RUN ls
+RUN cd tpm2-tss-$TPM2_TSS_VER && \
+    ./bootstrap && \
+    LDFLAGS="-L${MUSL_PREFIX}/lib/" CFLAGS="-I${MUSL_PREFIX}/include" ./configure --build=x86_64-pc-linux-gnu --host=x86_64-pc-linux-gnu --target=x86_64-pc-linux-musl CC="musl-gcc -fPIE -pie" --enable-fapi=no --enable-shared=no \
+        LIBCRYPTO_CFLAGS="-I${MUSL_PREFIX}/ssl/include" LIBCRYPTO_LIBS="-L${MUSL_PREFIX}/ssl/lib -lcrypto" && \
+    make -j$(nproc) && \
+    make install
