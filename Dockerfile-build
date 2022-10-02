@@ -61,10 +61,38 @@ RUN cd openssl-${OPENSSL_VER} && \
 ENV TPM2_TSS_VER="3.2.0"
 RUN curl -sL https://github.com/tpm2-software/tpm2-tss/archive/refs/tags/${TPM2_TSS_VER}.tar.gz | tar xz
 
-RUN ls
 RUN cd tpm2-tss-$TPM2_TSS_VER && \
+    sed -e "/AC_INIT(/"'!'"b;n;c[${TPM2_TSS_VER}]" && \
     ./bootstrap && \
     LDFLAGS="-L${MUSL_PREFIX}/lib/" CFLAGS="-I${MUSL_PREFIX}/include" ./configure --build=x86_64-pc-linux-gnu --host=x86_64-pc-linux-gnu --target=x86_64-pc-linux-musl CC="musl-gcc -fPIE -pie" --enable-fapi=no --enable-shared=no \
         LIBCRYPTO_CFLAGS="-I${MUSL_PREFIX}/ssl/include" LIBCRYPTO_LIBS="-L${MUSL_PREFIX}/ssl/lib -lcrypto" && \
     make -j$(nproc) && \
     make install
+
+# install rust
+RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
+
+# .cargo/bin in PATH is needed for running cargo, rustup etc.
+ENV PATH=/root/.cargo/bin:$PATH
+
+# Installing the musl target!
+RUN rustup target add x86_64-unknown-linux-musl
+
+ENV PATH=$MUSL_PREFIX/bin:$PATH \
+    TARGET=x86_64_unknown_linux_musl \
+    HOST=x86_64_unknown_linux_gnu \
+    PKG_CONFIG_ALLOW_CROSS=1 \
+    PKG_CONFIG_ALL_STATIC=true \
+    PKG_CONFIG_PATH_x86_64_unknown_linux_musl=$MUSL_PREFIX/lib/pkgconfig \
+    PKG_CONFIG_PATH_x86_64_unknown_linux_gnu=/usr/lib/x86_64-linux-gnu/pkgconfig \
+    PQ_LIB_STATIC_X86_64_UNKNOWN_LINUX_MUSL=true \
+    PG_CONFIG_X86_64_UNKNOWN_LINUX_MUSL=/musl/bin/pg_config \ 
+    OPENSSL_STATIC=true \
+    OPENSSL_DIR=$MUSL_PREFIX \
+    SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt \
+    SSL_CERT_DIR=/etc/ssl/certs \
+    LIBZ_SYS_STATIC=1 \
+    TSS2_SYS_DYNAMIC=0 \
+    TSS2_SYS_STATIC=1
+    
+WORKDIR /workdir
