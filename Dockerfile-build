@@ -2,39 +2,42 @@ FROM alpine:latest
 
 RUN apk add --no-cache \
 alpine-sdk \
+autoconf-archive \
 	curl \
 	git \
   cmake \
+  cryptsetup-dev \
+  libtool \
+  m4 \
   make \
+  openssl-dev \
+  pkgconfig \
   g++ \
     autoconf \
   iproute2 \
   gcc \
-  libtool \
+  linux-headers \
   automake
 
 ENV MUSL_PREFIX=/musl
 RUN mkdir /workdir && mkdir $MUSL_PREFIX
 WORKDIR /libworkdir
 
-RUN ln -s /usr/include/x86_64-linux-gnu/asm /usr/include/x86_64-linux-musl/asm && \
-    ln -s /usr/include/asm-generic /usr/include/x86_64-linux-musl/asm-generic && \
-    ln -s /usr/include/linux /usr/include/x86_64-linux-musl/linux
-
 ENV OPENSSL_VER="1.1.1q"
 RUN curl -sL https://www.openssl.org/source/openssl-${OPENSSL_VER}.tar.gz | tar xz
 
 RUN cd openssl-${OPENSSL_VER} && \
-    CC="musl-gcc -fPIE -pie" LDFLAGS="-L${MUSL_PREFIX}/lib/" CFLAGS="-I${MUSL_PREFIX}/include" ./Configure no-shared no-async --prefix=$MUSL_PREFIX --openssldir=${MUSL_PREFIX}/ssl linux-x86_64 && \
+    LDFLAGS="-L${MUSL_PREFIX}/lib/" CFLAGS="-I${MUSL_PREFIX}/include" ./Configure no-shared no-async --prefix=$MUSL_PREFIX --openssldir=${MUSL_PREFIX}/ssl linux-x86_64 && \
     make depend && make -j$(nproc) && make install_sw
 
 ENV TPM2_TSS_VER="3.2.0"
 RUN curl -sL https://github.com/tpm2-software/tpm2-tss/archive/refs/tags/${TPM2_TSS_VER}.tar.gz | tar xz
 
+
 RUN cd tpm2-tss-$TPM2_TSS_VER && \
     sed -e "/AC_INIT(/"'!'"b;n;c[${TPM2_TSS_VER}]" && \
     ./bootstrap && \
-    LDFLAGS="-L${MUSL_PREFIX}/lib/" CFLAGS="-I${MUSL_PREFIX}/include" ./configure --build=x86_64-pc-linux-gnu --host=x86_64-pc-linux-gnu --target=x86_64-pc-linux-musl CC="musl-gcc -fPIE -pie" --enable-fapi=no --enable-shared=no \
+    LDFLAGS="-L${MUSL_PREFIX}/lib/" CFLAGS="-I${MUSL_PREFIX}/include" ./configure --enable-fapi=no --enable-shared=no \
         LIBCRYPTO_CFLAGS="-I${MUSL_PREFIX}/ssl/include" LIBCRYPTO_LIBS="-L${MUSL_PREFIX}/ssl/lib -lcrypto" && \
     make -j$(nproc) && \
     make install
@@ -45,15 +48,14 @@ RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
 # .cargo/bin in PATH is needed for running cargo, rustup etc.
 ENV PATH=/root/.cargo/bin:$PATH
 
+RUN rustc -vV
+
 # Installing the musl target!
-RUN rustup target add x86_64-unknown-linux-musl
+#RUN rustup target add x86_64-unknown-linux-musl
 
 #RUN echo "[target.x86_64-unknown-linux-musl]\nlinker = \"musl-gcc\"" > ${HOME}/.cargo/config
 
 ENV PATH=$MUSL_PREFIX/bin:$PATH \
-    TARGET=x86_64_unknown_linux_musl \
-    HOST=x86_64_unknown_linux_gnu \
-    CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_LINKER=musl-gcc \
     PKG_CONFIG_ALLOW_CROSS=1 \
     PKG_CONFIG_ALL_STATIC=true \
     PKG_CONFIG_PATH_x86_64_unknown_linux_musl=$MUSL_PREFIX/lib/pkgconfig \
