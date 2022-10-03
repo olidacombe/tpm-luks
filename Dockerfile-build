@@ -32,3 +32,6 @@ ENV RUSTFLAGS="-C target-feature=+crt-static"
 ENV PKG_CONFIG_ALL_STATIC=true
 
 WORKDIR /workdir
+
+# HINT:
+# docker build -t tpm-luks-build -f Dockerfile-build . && docker run -it --rm -v $PWD:/workdir tpm-luks-build cargo build --release --target=x86_64-unknown-linux-musl -vv && ls -l target/x86_64-unknown-linux-musl/release/tpm-luks && ldd target/x86_64-unknown-linux-musl/release/tpm-luks
