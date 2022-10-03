@@ -10,10 +10,7 @@ autoconf-archive \
   libtool \
   m4 \
   make \
-  openssl-dev \
   pkgconfig \
-  	tpm2-tss-dev \
-  	tpm2-tss-static \
   g++ \
     autoconf \
   iproute2 \
@@ -42,6 +39,7 @@ RUN curl -sL https://github.com/tpm2-software/tpm2-tss/archive/refs/tags/${TPM2_
 RUN cd tpm2-tss-$TPM2_TSS_VER && \
     sed -i "/AC_INIT/"'!'"b;n;c\[${TPM2_TSS_VER}\]," configure.ac
 
+# TODO pkg-config stuff to find openssl?
 RUN cd tpm2-tss-$TPM2_TSS_VER && \
     ./bootstrap && \
     ./configure --enable-fapi=no --enable-shared=no \
