@@ -21,6 +21,33 @@ autoconf-archive \
   linux-headers \
   automake
 
+RUN mkdir /workdir
+WORKDIR /libworkdir
+
+#RUN ln -s /usr/include/x86_64-linux-gnu/asm /usr/include/x86_64-linux-musl/asm && \
+#    ln -s /usr/include/asm-generic /usr/include/x86_64-linux-musl/asm-generic && \
+#    ln -s /usr/include/linux /usr/include/x86_64-linux-musl/linux
+
+ENV OPENSSL_VER="1.1.1q"
+RUN curl -sL https://www.openssl.org/source/openssl-${OPENSSL_VER}.tar.gz | tar xz
+
+RUN cd openssl-${OPENSSL_VER} && \
+    ./Configure --openssldir=/usr/local/ssl --prefix=/usr/local/ssl no-shared no-async linux-x86_64 && \
+    make depend && make -j$(nproc) && make install_sw
+
+ENV TPM2_TSS_VER="3.2.0"
+RUN curl -sL https://github.com/tpm2-software/tpm2-tss/archive/refs/tags/${TPM2_TSS_VER}.tar.gz | tar xz
+
+# Hack in the release version so pkg-config will work
+RUN cd tpm2-tss-$TPM2_TSS_VER && \
+    sed -i "/AC_INIT/"'!'"b;n;c\[${TPM2_TSS_VER}\]," configure.ac
+
+RUN cd tpm2-tss-$TPM2_TSS_VER && \
+    ./bootstrap && \
+    ./configure --enable-fapi=no --enable-shared=no \
+        LIBCRYPTO_CFLAGS="-I/usr/local/ssl/include" LIBCRYPTO_LIBS="-L/usr/local/ssl/lib -l:crypto" && \
+    make -j$(nproc) && \
+    make install
 
 # install rust
 RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
@@ -28,10 +55,16 @@ RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
 # .cargo/bin in PATH is needed for running cargo, rustup etc.
 ENV PATH=/root/.cargo/bin:$PATH
 
-ENV RUSTFLAGS="-C target-feature=+crt-static"
-ENV PKG_CONFIG_ALL_STATIC=true
+ENV OPENSSL_DIR=/usr/local/ssl \
+    OPENSSL_STATIC=true \
+    SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt \
+    SSL_CERT_DIR=/etc/ssl/certs \
+    TSS2_SYS_DYNAMIC=0 \
+    TSS2_SYS_STATIC=1
+# RUSTFLAGS="-C target-feature=+crt-static" \
+# PKG_CONFIG_ALL_STATIC=true \
 
 WORKDIR /workdir
 
 # HINT:
-# docker build -t tpm-luks-build -f Dockerfile-build . && docker run -it --rm -v $PWD:/workdir tpm-luks-build cargo build --release --target=x86_64-unknown-linux-musl -vv && ls -l target/x86_64-unknown-linux-musl/release/tpm-luks && ldd target/x86_64-unknown-linux-musl/release/tpm-luks
+# docker build -t tpm-luks-build -f Dockerfile-build . && docker run -it --rm -v $PWD:/workdir -v ~/.cargo/git:/root/.cargo/git -v ~/.cargo/registry:/root/.cargo/registry tpm-luks-build cargo build --release --target=x86_64-unknown-linux-musl -vv && ls -l target/x86_64-unknown-linux-musl/release/tpm-luks && ldd target/x86_64-unknown-linux-musl/release/tpm-luks
