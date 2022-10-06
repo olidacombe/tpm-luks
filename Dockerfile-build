@@ -25,11 +25,13 @@ WORKDIR /libworkdir
 #    ln -s /usr/include/asm-generic /usr/include/x86_64-linux-musl/asm-generic && \
 #    ln -s /usr/include/linux /usr/include/x86_64-linux-musl/linux
 
-ENV OPENSSL_VER="1.1.1q"
+ENV \
+    OPENSSL_DIR="/usr/local/ssl" \
+    OPENSSL_VER="1.1.1q"
 RUN curl -sL https://www.openssl.org/source/openssl-${OPENSSL_VER}.tar.gz | tar xz
 
 RUN cd openssl-${OPENSSL_VER} && \
-    ./Configure --openssldir=/usr/local/ssl --prefix=/usr/local/ssl no-shared no-async linux-x86_64 && \
+    ./Configure --openssldir=${OPENSSL_DIR} --prefix=${OPENSSL_DIR} no-shared no-async linux-x86_64 && \
     make depend && make -j$(nproc) && make install_sw
 
 ENV TPM2_TSS_VER="3.2.0"
@@ -42,8 +44,8 @@ RUN cd tpm2-tss-$TPM2_TSS_VER && \
 # TODO pkg-config stuff to find openssl?
 RUN cd tpm2-tss-$TPM2_TSS_VER && \
     ./bootstrap && \
-    ./configure --enable-fapi=no --enable-shared=no \
-        LIBCRYPTO_CFLAGS="-I/usr/local/ssl/include" LIBCRYPTO_LIBS="-L/usr/local/ssl/lib -l:crypto" && \
+    CRYPTO_CFLAGS="-I${OPENSSL_DIR}/include" CRYPTO_LIBS="-L${OPENSSL_DIR}/lib -lcrypto" \
+    ./configure --enable-fapi=no --enable-shared=no && \
     make -j$(nproc) && \
     make install
 
@@ -53,8 +55,7 @@ RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
 # .cargo/bin in PATH is needed for running cargo, rustup etc.
 ENV PATH=/root/.cargo/bin:$PATH
 
-ENV OPENSSL_DIR=/usr/local/ssl \
-    OPENSSL_STATIC=true \
+ENV OPENSSL_STATIC=true \
     SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt \
     SSL_CERT_DIR=/etc/ssl/certs \
     TSS2_SYS_DYNAMIC=0 \
