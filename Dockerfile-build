@@ -49,12 +49,12 @@ RUN cd cryptsetup-${CRYPTSETUP_VER} && \
     CFLAGS="$_TODO_PIE_CFLAGS" OPENSSL_STATIC_CFLAGS="$OPENSSL_CFLAGS" OPENSSL_STATIC_LIBS="$OPENSSL_LIBS" \
     ./configure \
     --disable-asciidoc \
-    --enable-static \
     --disable-ssh-token \
     --disable-udev \
     --prefix=/usr/local \
     && \
     make && make install
+    # --enable-static \
     # --disable-shared \
 
 ### TPM2 TSS

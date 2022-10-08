@@ -3,7 +3,7 @@ fn main() {
     println!("cargo:rustc-link-search=/usr/lib");
     println!("cargo:rustc-link-search=/usr/local/ssl/lib");
     println!("cargo:rustc-link-lib=static=crypto");
-    println!("cargo:rustc-link-lib=static=cryptsetup");
+    //println!("cargo:rustc-link-lib=static=cryptsetup");
     //println!("cargo:rustc-link-lib=static=json-c");
     println!("cargo:rustc-link-lib=static=ssl");
     //println!("cargo:rustc-link-lib=static=tss2-esys");
