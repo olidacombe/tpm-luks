@@ -139,7 +139,6 @@ fn handle_from_hex_string(s: &str) -> Result<PersistentTpmHandle> {
     let mut a: [u8; 4] = [0; 4];
     a.copy_from_slice(v.as_slice());
 
-    let u = u32::from_be_bytes(a.clone());
     Ok(PersistentTpmHandle::new(u32::from_be_bytes(a))?)
 }
 

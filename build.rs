@@ -8,9 +8,9 @@ fn main() {
     println!("cargo:rustc-link-lib=static=json-c");
     println!("cargo:rustc-link-lib=static=ssl");
     println!("cargo:rustc-link-lib=static=uuid");
-    //println!("cargo:rustc-link-lib=static=tss2-esys");
-    //println!("cargo:rustc-link-lib=static=tss2-mu");
+    println!("cargo:rustc-link-lib=static=tss2-esys");
+    println!("cargo:rustc-link-lib=static=tss2-mu");
     //println!("cargo:rustc-link-lib=static=tss2-rc");
-    //println!("cargo:rustc-link-lib=static=tss2-sys");
-    //println!("cargo:rustc-link-lib=static=tss2-tctildr");
+    println!("cargo:rustc-link-lib=static=tss2-sys");
+    println!("cargo:rustc-link-lib=static=tss2-tctildr");
 }

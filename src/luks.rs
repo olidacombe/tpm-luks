@@ -1,8 +1,6 @@
-use cryptsetup_rs::api::{
-    CryptDeviceHandle, Keyslot, Luks1CryptDeviceHandle, Luks2CryptDeviceHandle, LuksCryptDevice,
-};
+use cryptsetup_rs::api::LuksCryptDevice;
 use cryptsetup_rs::open;
-use either::{for_both, Either};
+use either::for_both;
 use std::fmt::Debug;
 use std::path::PathBuf;
 use thiserror::Error;
