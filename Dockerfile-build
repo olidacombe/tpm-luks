@@ -50,11 +50,11 @@ RUN cd cryptsetup-${CRYPTSETUP_VER} && \
     ./configure \
     --disable-asciidoc \
     --disable-ssh-token \
+    --enable-static \
     --disable-udev \
     --prefix=/usr/local \
     && \
     make && make install
-    # --enable-static \
     # --disable-shared \
 
 ### TPM2 TSS
