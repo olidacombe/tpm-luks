@@ -12,9 +12,9 @@ RUN apk add --no-cache \
     gcc \
     git \
     iproute2 \
+    libaio-dev \
     libtool \
     linux-headers \
-    lvm2-dev \
     m4 \
     make \
     pkgconfig \
@@ -68,6 +68,18 @@ RUN cd json-c-${JSON_C_VER} && \
     cd build && \
     cmake -DCMAKE_INSTALL_PREFIX=/usr/local .. && \
     make all install
+
+### libdevicemapper
+ENV LVM2_VER="2.02"
+
+RUN git clone -b stable-$LVM2_VER --single-branch https://github.com/lvmteam/lvm2.git lvm2-$LVM2_VER
+
+RUN cd lvm2-$LVM2_VER && \
+    ./configure \
+    --enable-static_link \
+    --prefix=/usr/local \
+    && \
+    make install_device-mapper
 
 ### Cryptsetup
 ENV CRYPTSETUP_VER="2.5.0"
