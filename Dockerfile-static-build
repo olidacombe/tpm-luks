@@ -120,9 +120,10 @@ RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
 ENV PATH=/root/.cargo/bin:$PATH
 
 ENV \
+    PKG_CONFIG_ALL_STATIC=true \
+    TPM_LUKS_BUILD_STATIC=1 \
     TSS2_SYS_DYNAMIC=0 \
-    TSS2_SYS_STATIC=1 \
-    PKG_CONFIG_ALL_STATIC=true
+    TSS2_SYS_STATIC=1
 
 WORKDIR /workdir
 
