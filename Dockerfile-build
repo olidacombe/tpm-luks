@@ -34,7 +34,14 @@ ENV \
 RUN curl -sL https://www.openssl.org/source/openssl-${OPENSSL_VER}.tar.gz | tar xz
 
 RUN cd openssl-${OPENSSL_VER} && \
-    CFLAGS="$_TODO_PIE_CFLAGS" ./Configure --openssldir=${OPENSSL_DIR} --prefix=${OPENSSL_DIR} no-shared no-async linux-x86_64 && \
+    CFLAGS="$_TODO_PIE_CFLAGS" \
+    ./Configure \
+    --openssldir=${OPENSSL_DIR} \
+    --prefix=${OPENSSL_DIR} \
+    no-shared \
+    no-async \
+    linux-x86_64 \
+    && \
     make depend && make -j$(nproc) && make install_sw
 
 ENV OPENSSL_CFLAGS="-I${OPENSSL_DIR}/include" OPENSSL_LIBS="-L${OPENSSL_DIR}/lib -lcrypto"
@@ -47,12 +54,18 @@ RUN curl -sL https://github.com/tpm2-software/tpm2-tss/archive/refs/tags/${TPM2_
 RUN cd tpm2-tss-$TPM2_TSS_VER && \
     sed -i "/AC_INIT/"'!'"b;n;c\[${TPM2_TSS_VER}\]," configure.ac
 
+# temp hack out rand() call to decide if there's a path out of a mess
+RUN cd tpm2-tss-$TPM2_TSS_VER && \
+    sed -i 's/rand()/166452/' src/tss2-esys/esys_context.c
+
 RUN cd tpm2-tss-$TPM2_TSS_VER && \
     ./bootstrap && \
-    CFLAGS="$_TODO_PIE_CFLAGS" CRYPTO_CFLAGS="$OPENSSL_CFLAGS" CRYPTO_LIBS="$OPENSSL_LIBS" \
+    LIBS="-lc -lstdc++" CFLAGS="$_TODO_PIE_CFLAGS" CRYPTO_CFLAGS="$OPENSSL_CFLAGS" CRYPTO_LIBS="$OPENSSL_LIBS" \
     ./configure \
+    --disable-doxygen-doc \
     --enable-fapi=no \
     --enable-shared=no \
+    --enable-static=yes \
     && \
     make -j$(nproc) && \
     make install
@@ -115,10 +128,10 @@ ENV \
     #SSL_CERT_DIR=/etc/ssl/certs \
     TSS2_SYS_DYNAMIC=0 \
     TSS2_SYS_STATIC=1 \
-    OPENSSL_STATIC=true \
-    PKG_CONFIG_ALL_STATIC=true \
+    PKG_CONFIG_ALL_STATIC=true
+    #OPENSSL_STATIC=true \
     # RUSTFLAGS="-C relocation-model=pie" \
-    RUSTFLAGS="-C target-feature=+crt-static"
+    #RUSTFLAGS="-C target-feature=+crt-static"
 
 WORKDIR /workdir
 
