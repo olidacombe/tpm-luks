@@ -9,8 +9,8 @@ use std::path::PathBuf;
 use tss_esapi::handles::PersistentTpmHandle;
 use tss_esapi::structures::{Digest, PcrSelectionList};
 
-const TPM_ENV_VAR: &'static str = "TCTI";
-const DEFAULT_PERSISTENT_HANDLE: &'static str = "0x81000000";
+const TPM_ENV_VAR: &str = "TCTI";
+const DEFAULT_PERSISTENT_HANDLE: &str = "0x81000000";
 
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None)]
@@ -25,6 +25,12 @@ pub struct Cli {
 
     #[command(subcommand)]
     command: Commands,
+}
+
+impl Default for Cli {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 #[derive(Subcommand, Debug)]
@@ -76,12 +82,12 @@ impl Cli {
                 luks_dev,
                 pcr_digest,
                 handle,
-            } => self.seal(&luks_dev, pcr_digest, handle.clone()),
+            } => self.seal(luks_dev, pcr_digest, *handle),
             Commands::Unseal {
                 luks_dev,
                 luks_dev_name,
                 handle,
-            } => self.unseal(&luks_dev, luks_dev_name.as_str(), handle.clone()),
+            } => self.unseal(luks_dev, luks_dev_name.as_str(), *handle),
         }?;
         Ok(self)
     }
@@ -99,8 +105,7 @@ impl Cli {
         let passphrase = seal_random_passphrase(opts, 32, handle)?;
         let prev_key = env::var("PASSPHRASE")
             .ok()
-            .map(|p| p.as_bytes().try_into().ok())
-            .flatten();
+            .and_then(|p| p.as_bytes().try_into().ok());
         add_key_to_device(luks_dev_path, passphrase, prev_key)?;
         Ok(())
     }
