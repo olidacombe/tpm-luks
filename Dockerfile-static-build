@@ -54,10 +54,6 @@ RUN curl -sL https://github.com/tpm2-software/tpm2-tss/archive/refs/tags/${TPM2_
 RUN cd tpm2-tss-$TPM2_TSS_VER && \
     sed -i "/AC_INIT/"'!'"b;n;c\[${TPM2_TSS_VER}\]," configure.ac
 
-# temp hack out rand() call to decide if there's a path out of a mess
-#RUN cd tpm2-tss-$TPM2_TSS_VER && \
-#    sed -i 's/rand()/166452/' src/tss2-esys/esys_context.c
-
 RUN cd tpm2-tss-$TPM2_TSS_VER && \
     ./bootstrap && \
     LIBS="-l:libc.a" CFLAGS="$_TODO_PIE_CFLAGS" CRYPTO_CFLAGS="$OPENSSL_CFLAGS" CRYPTO_LIBS="$OPENSSL_LIBS" \
@@ -127,10 +123,8 @@ ENV \
     TSS2_SYS_DYNAMIC=0 \
     TSS2_SYS_STATIC=1 \
     PKG_CONFIG_ALL_STATIC=true
-    #RUSTFLAGS="-C relocation-model=pie" \
-    #RUSTFLAGS="-C target-feature=+crt-static"
 
 WORKDIR /workdir
 
 # HINT:
-# docker build -t tpm-luks-build -f Dockerfile-build . && docker run -it --rm -v $PWD:/workdir -v ~/.cargo/git:/root/.cargo/git -v ~/.cargo/registry:/root/.cargo/registry tpm-luks-build cargo build --release --target=x86_64-unknown-linux-musl -vv && ls -l target/x86_64-unknown-linux-musl/release/tpm-luks && ldd target/x86_64-unknown-linux-musl/release/tpm-luks
+# docker build -t tpm-luks-build -f Dockerfile-static-build . && docker run -it --rm -v $PWD:/workdir -v ~/.cargo/git:/root/.cargo/git -v ~/.cargo/registry:/root/.cargo/registry tpm-luks-build cargo build --release --target=x86_64-unknown-linux-musl -vv && ls -l target/x86_64-unknown-linux-musl/release/tpm-luks && ldd target/x86_64-unknown-linux-musl/release/tpm-luks
