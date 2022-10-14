@@ -11,6 +11,7 @@ on:
 
 env:
   CARGO_TERM_COLOR: always
+  REGISTRY: ghcr.io
 
 jobs:
   test:
@@ -96,4 +97,10 @@ jobs:
       contents: read
     steps: 
       - uses: actions/checkout@v2
-      - run: docker build -t ghcr.io/olidacombe/tpm-luks-static-build -f Dockerfile-static-build .
+            - name: Log in to the Container registry
+      - uses: docker/login-action@f054a8b539a109f9f41c372932f1ae047eff08c9
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - run: docker build -t ${{ env.REGISTRY }}/${{ github.repository }}-static-build -f Dockerfile-static-build .
