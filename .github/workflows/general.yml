@@ -103,4 +103,7 @@ jobs:
           registry: ${{ env.REGISTRY }}
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
-      - run: docker build -t ${{ env.REGISTRY }}/${{ github.repository }}-static-build -f Dockerfile-static-build .
+      - name: Build static builder base
+        run: docker build -t ${{ env.REGISTRY }}/${{ github.repository }}-static-build -f Dockerfile-static-build .
+      - name: Build scratch binary image
+        run: docker build -t ${{ env.REGISTRY }}/${{ github.repository }} -f Dockerfile-scratch-bin .
