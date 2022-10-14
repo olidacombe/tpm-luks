@@ -89,11 +89,11 @@ jobs:
           args: -- -D warnings
 
   binary:
-    name: binary
+    name: Binary
     runs-on: ubuntu-latest
     permissions:
       packages: write
       contents: read
     steps: 
       - uses: actions/checkout@v2
-      - run: docker build -t ghcr.io/olidacombe/tpm-luks-static-build -f Dockerfile-static-build
+      - run: docker build -t ghcr.io/olidacombe/tpm-luks-static-build -f Dockerfile-static-build .
