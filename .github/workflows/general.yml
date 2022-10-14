@@ -155,6 +155,12 @@ jobs:
           # And: https://github.com/docker/buildx#--cache-tonametypetypekeyvalue
           cache-to: type=local,mode=max,dest=/tmp/.buildx-cache-new
 
+      # TODO
+      # docker run --privileged --cap-add MKNOD olidacombe/tpm-luks-ci ./make-luks-image.sh 
+      # step to make crypty.img
+      # Then a test run step, without cryptsetup installed, grabbing the above image and running
+      # our binary from the scratch-binary image on it
+
       - name: Move cache
         run: |
           rm -rf /tmp/.buildx-cache

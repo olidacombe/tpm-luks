@@ -1,8 +1,9 @@
 FROM ubuntu:22.04
 
-RUN apt-get update
-RUN apt-get install -y \
+RUN apt-get update && \
+    apt-get install -y \
 	build-essential \
+	cryptsetup-bin \
 	curl \
 	libcryptsetup-dev \
 	libtss2-dev \
@@ -10,3 +11,8 @@ RUN apt-get install -y \
 	swtpm \
 	swtpm-tools \
 	tss2
+
+RUN mkdir /workdir
+WORKDIR /workdir
+
+COPY make-luks-image.sh .
