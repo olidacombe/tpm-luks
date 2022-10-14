@@ -1,5 +1,5 @@
+use self::pcr::{AggregateDigest, PcrError};
 use ambassador::{delegatable_trait, Delegate};
-use hex;
 use once_cell::sync::Lazy;
 use pcr::{pcr_slot_to_handle, PcrPolicyOptions};
 use std::ops::{Deref, DerefMut};
@@ -15,8 +15,8 @@ use tss_esapi::interface_types::ecc::EccCurve;
 use tss_esapi::interface_types::resource_handles::{Hierarchy, Provision};
 use tss_esapi::interface_types::session_handles::{AuthSession, HmacSession, PolicySession};
 use tss_esapi::structures::{
-    CapabilityData, CreateKeyResult, CreatePrimaryKeyResult, Digest, DigestValues, EccPoint,
-    KeyedHashScheme, MaxBuffer, PcrSelectionList, Public, PublicEccParametersBuilder,
+    CapabilityData, CreateKeyResult, CreatePrimaryKeyResult, Digest, DigestList, DigestValues,
+    EccPoint, KeyedHashScheme, PcrSelectionList, Public, PublicEccParametersBuilder,
     PublicKeyedHashParameters, SensitiveData, SymmetricDefinition, SymmetricDefinitionObject,
 };
 
@@ -30,6 +30,8 @@ pub enum TpmError {
     EmptyPcrSelectionList,
     #[error(transparent)]
     TssEsapi(#[from] tss_esapi::Error),
+    #[error(transparent)]
+    PcrError(#[from] PcrError),
 }
 
 pub type Result<T, E = TpmError> = core::result::Result<T, E>;
@@ -130,33 +132,24 @@ impl<C: TContext, S: ContextState> Ctx<C, S> {
             .tr_sess_set_attributes(session, session_attributes, session_attributes_mask)?;
         Ok(session)
     }
+
+    /// Retrieves a PCR digest list given a selection list
+    fn digest_list(&mut self, pcr_selection_list: &PcrSelectionList) -> Result<DigestList> {
+        let (_update_counter, _selection_list, digest_list) = self
+            .ctx
+            .execute_without_session(|ctx| ctx.pcr_read(pcr_selection_list.clone()))?;
+        Ok(digest_list)
+    }
+
     /// Returns the digest for a PCR selection list
     fn pcr_digest(
         &mut self,
         pcr_selection_list: &PcrSelectionList,
         hashing_algorithm: HashingAlgorithm,
     ) -> Result<Digest> {
-        let (_update_counter, _selection_list, digest_list) = self
-            .ctx
-            .execute_without_session(|ctx| ctx.pcr_read(pcr_selection_list.clone()))?;
-
-        let concatenated_pcr_digests = digest_list
-            .value()
-            .iter()
-            .map(|x| x.value())
-            .collect::<Vec<&[u8]>>()
-            .concat();
-        let concatenated_pcr_digests = MaxBuffer::try_from(concatenated_pcr_digests)?;
-
-        let (digest, _ticket) = self.ctx.execute_without_session(|ctx| {
-            ctx.hash(
-                concatenated_pcr_digests,
-                hashing_algorithm, // must match start_auth_session, regardless of PCR banks used
-                Hierarchy::Owner,
-            )
-        })?;
-
-        Ok(digest)
+        Ok(self
+            .digest_list(pcr_selection_list)?
+            .digest(hashing_algorithm)?)
     }
 }
 
@@ -409,9 +402,8 @@ pub fn get_context() -> Result<InitialContext> {
     Ok(ctx)
 }
 
-pub fn get_pcr_digest(pcr_selection_list: &PcrSelectionList) -> Result<String> {
-    let digest = get_context()?.pcr_digest(pcr_selection_list, HashingAlgorithm::Sha256)?;
-    Ok(hex::encode(digest.value()))
+pub fn get_pcr_digest(pcr_selection_list: &PcrSelectionList) -> Result<Digest> {
+    Ok(get_context()?.pcr_digest(pcr_selection_list, HashingAlgorithm::Sha256)?)
 }
 
 pub fn seal_random_passphrase(

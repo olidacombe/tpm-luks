@@ -1,7 +1,8 @@
+use sha2::Digest as ShaDigest;
 use thiserror::Error;
 use tss_esapi::handles::PcrHandle;
 use tss_esapi::interface_types::algorithm::HashingAlgorithm;
-use tss_esapi::structures::{Digest, PcrSelectionList, PcrSlot};
+use tss_esapi::structures::{Digest, DigestList, PcrSelectionList, PcrSlot};
 
 #[derive(Error, Debug, PartialEq)]
 pub enum PcrError {
@@ -117,6 +118,29 @@ pub fn pcr_slot_to_handle(slot: &PcrSlot) -> PcrHandle {
         PcrSlot::Slot29 => PcrHandle::Pcr29,
         PcrSlot::Slot30 => PcrHandle::Pcr30,
         PcrSlot::Slot31 => PcrHandle::Pcr31,
+    }
+}
+
+pub trait AggregateDigest {
+    fn digest(&self, hashing_algorithm: HashingAlgorithm) -> Result<Digest>;
+}
+
+impl AggregateDigest for DigestList {
+    fn digest(&self, hash_algorithm: HashingAlgorithm) -> Result<Digest> {
+        let concatenated_pcr_digests = self
+            .value()
+            .iter()
+            .map(|x| x.value())
+            .collect::<Vec<&[u8]>>()
+            .concat();
+        let mut hasher = match hash_algorithm {
+            HashingAlgorithm::Sha256 => sha2::Sha256::new(),
+            _ => unimplemented!(),
+        };
+        hasher.update(concatenated_pcr_digests);
+        let digest = hasher.finalize();
+        let digest: &[u8] = digest.as_ref();
+        Ok(digest.try_into()?)
     }
 }
 
