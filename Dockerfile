@@ -1,4 +1,4 @@
-FROM alpine:latest
+FROM alpine:latest AS build-base
 
 RUN apk add --no-cache \
     alpine-sdk \
@@ -112,6 +112,8 @@ RUN cd cryptsetup-${CRYPTSETUP_VER} && \
     make && make install
     # --disable-shared \
 
+FROM build-base AS rust
+
 ### Rust
 # install rust
 RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
@@ -127,5 +129,9 @@ ENV \
 
 WORKDIR /workdir
 
-# HINT:
-# docker build -t tpm-luks-build -f Dockerfile-static-build . && docker run -it --rm -v $PWD:/workdir -v ~/.cargo/git:/root/.cargo/git -v ~/.cargo/registry:/root/.cargo/registry tpm-luks-build cargo build --release --target=x86_64-unknown-linux-musl -vv && ls -l target/x86_64-unknown-linux-musl/release/tpm-luks && ldd target/x86_64-unknown-linux-musl/release/tpm-luks
+COPY . .
+RUN cargo build --release --target=x86_64-unknown-linux-musl
+
+FROM scratch AS binary
+
+COPY --from=rust /workdir/target/x86_64-unknown-linux-musl/release/tpm-luks .

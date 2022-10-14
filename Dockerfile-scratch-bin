@@ -1,8 +1,0 @@
-FROM ghcr.io/olidacombe/tpm-luks-static-build AS builder
-
-COPY . .
-RUN cargo build --release --target=x86_64-unknown-linux-musl
-
-FROM scratch
-
-COPY --from=builder /workdir/target/x86_64-unknown-linux-musl/release/tpm-luks .
