@@ -45,5 +45,7 @@
 //! tpm2_flushcontext session.dat
 //! ```
 
+pub mod cli;
 pub mod luks;
 pub mod tpm;
+pub use self::tpm::pcr;

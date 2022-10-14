@@ -1,5 +1,7 @@
 use ambassador::{delegatable_trait, Delegate};
+use hex;
 use once_cell::sync::Lazy;
+use pcr::{pcr_slot_to_handle, PcrPolicyOptions};
 use std::ops::{Deref, DerefMut};
 use std::sync::{Mutex, MutexGuard};
 use thiserror::Error;
@@ -14,9 +16,11 @@ use tss_esapi::interface_types::resource_handles::{Hierarchy, Provision};
 use tss_esapi::interface_types::session_handles::{AuthSession, HmacSession, PolicySession};
 use tss_esapi::structures::{
     CapabilityData, CreateKeyResult, CreatePrimaryKeyResult, Digest, DigestValues, EccPoint,
-    KeyedHashScheme, MaxBuffer, PcrSelectionList, PcrSlot, Public, PublicEccParametersBuilder,
+    KeyedHashScheme, MaxBuffer, PcrSelectionList, Public, PublicEccParametersBuilder,
     PublicKeyedHashParameters, SensitiveData, SymmetricDefinition, SymmetricDefinitionObject,
 };
+
+pub mod pcr;
 
 #[derive(Error, Debug)]
 pub enum TpmError {
@@ -101,6 +105,11 @@ impl<C: TContext, S: ContextState> Ctx<C, S> {
         }
         Ok(())
     }
+
+    pub fn get_random(&mut self, num_bytes: usize) -> Result<Digest> {
+        Ok(self.ctx.get_random(num_bytes)?)
+    }
+
     fn make_session(&mut self, t: SessionType) -> Result<AuthSession> {
         let session = self
             .ctx
@@ -391,7 +400,6 @@ static CONTEXT: Lazy<Mutex<tss_esapi::Context>> = Lazy::new(|| {
 pub fn get_context() -> Result<InitialContext> {
     let mut ctx = CONTEXT.lock().unwrap();
     ctx.startup(StartupType::Clear)?;
-    //ctx.clear_sessions();
     let mut ctx = Ctx {
         ctx,
         state: Initial {},
@@ -400,74 +408,38 @@ pub fn get_context() -> Result<InitialContext> {
     Ok(ctx)
 }
 
-fn pcr_slot_to_handle(slot: &PcrSlot) -> PcrHandle {
-    match slot {
-        PcrSlot::Slot0 => PcrHandle::Pcr0,
-        PcrSlot::Slot1 => PcrHandle::Pcr1,
-        PcrSlot::Slot2 => PcrHandle::Pcr2,
-        PcrSlot::Slot3 => PcrHandle::Pcr3,
-        PcrSlot::Slot4 => PcrHandle::Pcr4,
-        PcrSlot::Slot5 => PcrHandle::Pcr5,
-        PcrSlot::Slot6 => PcrHandle::Pcr6,
-        PcrSlot::Slot7 => PcrHandle::Pcr7,
-        PcrSlot::Slot8 => PcrHandle::Pcr8,
-        PcrSlot::Slot9 => PcrHandle::Pcr9,
-        PcrSlot::Slot10 => PcrHandle::Pcr10,
-        PcrSlot::Slot11 => PcrHandle::Pcr11,
-        PcrSlot::Slot12 => PcrHandle::Pcr12,
-        PcrSlot::Slot13 => PcrHandle::Pcr13,
-        PcrSlot::Slot14 => PcrHandle::Pcr14,
-        PcrSlot::Slot15 => PcrHandle::Pcr15,
-        PcrSlot::Slot16 => PcrHandle::Pcr16,
-        PcrSlot::Slot17 => PcrHandle::Pcr17,
-        PcrSlot::Slot18 => PcrHandle::Pcr18,
-        PcrSlot::Slot19 => PcrHandle::Pcr19,
-        PcrSlot::Slot20 => PcrHandle::Pcr20,
-        PcrSlot::Slot21 => PcrHandle::Pcr21,
-        PcrSlot::Slot22 => PcrHandle::Pcr22,
-        PcrSlot::Slot23 => PcrHandle::Pcr23,
-        PcrSlot::Slot24 => PcrHandle::Pcr24,
-        PcrSlot::Slot25 => PcrHandle::Pcr25,
-        PcrSlot::Slot26 => PcrHandle::Pcr26,
-        PcrSlot::Slot27 => PcrHandle::Pcr27,
-        PcrSlot::Slot28 => PcrHandle::Pcr28,
-        PcrSlot::Slot29 => PcrHandle::Pcr29,
-        PcrSlot::Slot30 => PcrHandle::Pcr30,
-        PcrSlot::Slot31 => PcrHandle::Pcr31,
-    }
+pub fn get_pcr_digest(pcr_selection_list: &PcrSelectionList) -> Result<String> {
+    let digest = get_context()?.pcr_digest(pcr_selection_list, HashingAlgorithm::Sha256)?;
+    Ok(hex::encode(digest.value()))
 }
 
-pub struct PcrPolicyOptions {
-    digest: Option<Digest>,
-    pub pcr_selection_list: PcrSelectionList,
+pub fn seal_random_passphrase(
+    opts: PcrPolicyOptions,
+    length: usize,
+    handle: PersistentTpmHandle,
+) -> Result<SensitiveData> {
+    let mut ctx = get_context()?;
+    let passphrase = SensitiveData::try_from(ctx.get_random(length)?.value())?;
+
+    ctx.create_primary()?
+        .with_pcr_policy(opts)?
+        .seal(passphrase.clone(), handle)?;
+
+    let u: u32 = handle.into();
+    log::info!("Sealed random passphrase at {:#10x}", u);
+
+    Ok(passphrase)
 }
 
-impl PcrPolicyOptions {
-    pub fn with_digest(mut self, digest: Digest) -> Self {
-        self.digest = Some(digest);
-        self
-    }
-}
+pub fn get_sealed_passphrase(
+    pcr_selection_list: PcrSelectionList,
+    handle: PersistentTpmHandle,
+) -> Result<SensitiveData> {
+    let passphrase = get_context()?
+        .pcr_auth(pcr_selection_list)?
+        .unseal(handle)?;
 
-impl Default for PcrPolicyOptions {
-    fn default() -> Self {
-        let pcr_selection_list = PcrSelectionList::builder()
-            .with_selection(
-                HashingAlgorithm::Sha1,
-                &[
-                    PcrSlot::Slot0,
-                    PcrSlot::Slot1,
-                    PcrSlot::Slot2,
-                    PcrSlot::Slot3,
-                ],
-            )
-            .build()
-            .unwrap();
-        Self {
-            digest: None,
-            pcr_selection_list,
-        }
-    }
+    Ok(passphrase)
 }
 
 #[cfg(test)]
