@@ -159,10 +159,19 @@ jobs:
           # And: https://github.com/docker/buildx#--cache-tonametypetypekeyvalue
           cache-to: type=local,mode=max,dest=/tmp/.buildx-cache-new
 
+      - name: Move cache
+        run: |
+          rm -rf /tmp/.buildx-cache
+          mv /tmp/.buildx-cache-new /tmp/.buildx-cache
+
+  binary-test:
+    name: Binary Test
+    runs-on: ubuntu-latest
+    steps: 
       - name: Create encrypted disk image for tests
         run: |
           docker volume create test-data
-          docker run -v test-data:/workdir olidacombe/tpm-luks-ci ./make-luks-image.sh crypty
+          docker run --privileged --cap-add MKNOD -v test-data:/workdir olidacombe/tpm-luks-ci ./make-luks-image.sh crypty
 
       - name: Clean up test data volume
         run: |
@@ -173,8 +182,3 @@ jobs:
       # step to make crypty.img
       # Then a test run step, without cryptsetup installed, grabbing the above image and running
       # our binary from the scratch-binary image on it
-
-      - name: Move cache
-        run: |
-          rm -rf /tmp/.buildx-cache
-          mv /tmp/.buildx-cache-new /tmp/.buildx-cache
