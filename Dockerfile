@@ -118,6 +118,8 @@ RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
 # .cargo/bin in PATH is needed for running cargo, rustup etc.
 ENV PATH=/root/.cargo/bin:$PATH
 
+RUN cargo install cargo-chef
+
 ENV \
     PKG_CONFIG_ALL_STATIC=true \
     TPM_LUKS_BUILD_STATIC=1 \
@@ -125,6 +127,14 @@ ENV \
     TSS2_SYS_STATIC=1
 
 WORKDIR /workdir
+
+FROM rust AS planner
+COPY . .
+RUN cargo chef prepare --recipe-path recipe.json
+
+FROM rust AS builder
+COPY --from=planner recipe.json recipe.json
+RUN cargo chef cook --release --recipe-path recipe.json
 
 COPY . .
 RUN cargo build --release --target=x86_64-unknown-linux-musl

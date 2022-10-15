@@ -176,9 +176,3 @@ jobs:
       - name: Clean up test data volume
         run: |
           docker volume rm test-data
-
-      # TODO
-      # docker run --privileged --cap-add MKNOD olidacombe/tpm-luks-ci ./make-luks-image.sh 
-      # step to make crypty.img
-      # Then a test run step, without cryptsetup installed, grabbing the above image and running
-      # our binary from the scratch-binary image on it
