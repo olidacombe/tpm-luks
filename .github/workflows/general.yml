@@ -11,7 +11,8 @@ on:
 
 env:
   CARGO_TERM_COLOR: always
-  #CI_IMAGE: ${{ github.repository }}-ci
+  # TODO dry usages of this same string in image:
+  CI_IMAGE: ${{ github.repository }}-ci
   REGISTRY: ghcr.io
   REPO: ${{ github.repository }}
   #SWTPM_IMAGE: ${{ github.repository_owner }}/swtpm
@@ -73,7 +74,7 @@ jobs:
     name: Clippy
     runs-on: ubuntu-latest
     container:
-      image: $CI_IMAGE
+      image: ${{ github.repository }}-ci
     steps:
       - name: Checkout repository
         uses: actions/checkout@v2
