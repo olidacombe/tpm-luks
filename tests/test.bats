@@ -7,4 +7,6 @@ setup() {
 
 @test "have encrypted disk image" {
     assert_exist "$ENCRYPTED_IMAGE"
+    run strings "$ENCRYPTED_IMAGE"
+    refute_output "plain"
 }
