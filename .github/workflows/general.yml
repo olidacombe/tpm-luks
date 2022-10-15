@@ -20,10 +20,10 @@ jobs:
     name: Test
     runs-on: ubuntu-latest
     container:
-      image: $CI_IMAGE
+      image: ${{ env.CI_IMAGE }}
     services:
       swtpm:
-        image: $SWTPM_IMAGE
+        image: ${{ env.SWTPM_IMAGE }}
         options: >-
           --security-opt seccomp=unconfined
     steps:
