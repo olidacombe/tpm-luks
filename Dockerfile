@@ -141,4 +141,4 @@ RUN cargo build --release --target=x86_64-unknown-linux-musl
 
 FROM scratch AS binary
 
-COPY --from=rust /workdir/target/x86_64-unknown-linux-musl/release/tpm-luks .
+COPY --from=builder /workdir/target/x86_64-unknown-linux-musl/release/tpm-luks .
