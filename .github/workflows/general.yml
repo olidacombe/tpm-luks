@@ -14,7 +14,7 @@ env:
   CI_IMAGE: ${{ github.repository }}-ci
   REGISTRY: ghcr.io
   REPO: ${{ github.repository }}
-  SWTPM_IMAGE: olidacombe/swtpm
+  SWTPM_IMAGE: "olidacombe/swtpm"
 jobs:
   test:
     name: Test
