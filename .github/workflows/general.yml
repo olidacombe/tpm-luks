@@ -14,7 +14,7 @@ env:
   #CI_IMAGE: ${{ github.repository }}-ci
   REGISTRY: ghcr.io
   REPO: ${{ github.repository }}
-  SWTPM_IMAGE: "olidacombe/swtpm"
+  #SWTPM_IMAGE: ${{ github.repository_owner }}/swtpm
 jobs:
   test:
     name: Test
@@ -23,7 +23,7 @@ jobs:
       image: ${{ github.repository }}-ci
     services:
       swtpm:
-        image: ${{ env.SWTPM_IMAGE }}
+        image: ${{ github.repository_owner }}/swtpm
         options: >-
           --security-opt seccomp=unconfined
     steps:
