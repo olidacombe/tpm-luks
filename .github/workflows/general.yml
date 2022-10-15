@@ -23,7 +23,7 @@ jobs:
       image: ${{ env.CI_IMAGE }}
     services:
       swtpm:
-        image: ${{ env.SWTPM_IMAGE }}
+        image: $SWTPM_IMAGE
         options: >-
           --security-opt seccomp=unconfined
     steps:
