@@ -18,4 +18,4 @@ RUN git clone --depth 1 --branch v2.0.0 https://github.com/bats-core/bats-assert
 
 COPY . .
 
-CMD ["bats/bin/bats", "test.bats"]
+CMD ["bats/bin/bats", "--tap", "test.bats"]

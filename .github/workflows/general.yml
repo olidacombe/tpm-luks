@@ -183,7 +183,7 @@ jobs:
 
       - name: Run bats tests against static bin
         run: |
-          docker run bats-test
+          docker run -v test-data:/data bats-test
 
       - name: Clean up test data volume
         run: |

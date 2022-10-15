@@ -1,3 +1,10 @@
-@test "can run our script" {
-    echo ok then
+setup() {
+    load 'test_helper/bats-support/load'
+    load 'test_helper/bats-assert/load'
+    DATA="/data"
+    ENCRYPTED_IMAGE="${DATA}/crypty.img"
+}
+
+@test "have encrypted disk image" {
+    assert_exist "$ENCRYPTED_IMAGE"
 }
