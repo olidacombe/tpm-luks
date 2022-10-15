@@ -150,7 +150,7 @@ jobs:
           builder: ${{ steps.buildx.outputs.name }}
           # Set the desired build target here
           target: binary
-          #push: false
+          push: true
           #load: true
           tags: ${{ steps.prep.outputs.tagged_image }}
           #cache-from: type=local,src=/tmp/.buildx-cache
