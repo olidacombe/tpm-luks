@@ -73,7 +73,7 @@ jobs:
     name: Clippy
     runs-on: ubuntu-latest
     container:
-      image: ${{ env.CI_IMAGE }}
+      image: $CI_IMAGE
     steps:
       - name: Checkout repository
         uses: actions/checkout@v2
