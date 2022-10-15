@@ -127,15 +127,6 @@ jobs:
         with:
           install: true
 
-      - name: Cache Docker layers
-        uses: actions/cache@v2
-        with:
-          path: /tmp/.buildx-cache
-          # Key is named differently to avoid collision
-          key: ${{ runner.os }}-multi-buildx-${{ github.sha }}
-          restore-keys: |
-            ${{ runner.os }}-multi-buildx
-
       - name: Log in to the Container registry
         uses: docker/login-action@f054a8b539a109f9f41c372932f1ae047eff08c9
         with:
@@ -148,16 +139,9 @@ jobs:
         with:
           context: .
           builder: ${{ steps.buildx.outputs.name }}
-          # Set the desired build target here
           target: binary
           push: true
-          #load: true
           tags: ${{ steps.prep.outputs.tagged_image }}
-          #cache-from: type=local,src=/tmp/.buildx-cache
-          # Note the mode=max here
-          # More: https://github.com/moby/buildkit#--export-cache-options
-          # And: https://github.com/docker/buildx#--cache-tonametypetypekeyvalue
-          #cache-to: type=local,mode=max,dest=/tmp/.buildx-cache-new
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
@@ -174,16 +158,10 @@ jobs:
           builder: ${{ steps.buildx.outputs.name }}
           build-args: |
             BIN_IMAGE=${{ steps.prep.outputs.tagged_image }}
-          # Set the desired build target here
           target: test
           push: false
-          #load: true
+          load: true
           tags: bats-test
-          #cache-from: type=local,src=/tmp/.buildx-cache
-          # Note the mode=max here
-          # More: https://github.com/moby/buildkit#--export-cache-options
-          # And: https://github.com/docker/buildx#--cache-tonametypetypekeyvalue
-          #cache-to: type=local,mode=max,dest=/tmp/.buildx-cache-new
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
@@ -194,8 +172,3 @@ jobs:
       - name: Clean up test data volume
         run: |
           docker volume rm test-data
-
-      - name: Move cache
-        run: |
-          rm -rf /tmp/.buildx-cache
-          mv /tmp/.buildx-cache-new /tmp/.buildx-cache
