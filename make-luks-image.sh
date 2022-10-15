@@ -2,7 +2,7 @@
 
 set -xeuo pipefail
 
-LUKS_NAME=crypty
+LUKS_NAME=${1:-crypty}
 DISK=${LUKS_NAME}.img
 LUKS_DEV=/dev/mapper/$LUKS_NAME
 MNT=mnt
