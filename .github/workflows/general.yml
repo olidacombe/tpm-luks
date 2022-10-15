@@ -11,7 +11,7 @@ on:
 
 env:
   CARGO_TERM_COLOR: always
-  CI_IMAGE: ${{ github.repository }}-ci
+  #CI_IMAGE: ${{ github.repository }}-ci
   REGISTRY: ghcr.io
   REPO: ${{ github.repository }}
   SWTPM_IMAGE: "olidacombe/swtpm"
@@ -20,7 +20,7 @@ jobs:
     name: Test
     runs-on: ubuntu-latest
     container:
-      image: ${{ env.CI_IMAGE }}
+      image: ${{ github.repository }}-ci
     services:
       swtpm:
         image: ${{ env.SWTPM_IMAGE }}
