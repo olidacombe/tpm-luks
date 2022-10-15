@@ -171,7 +171,7 @@ jobs:
       - name: Create encrypted disk image for tests
         run: |
           docker volume create test-data
-          docker run --privileged --cap-add MKNOD -v test-data:/workdir olidacombe/tpm-luks-ci ./make-luks-image.sh crypty
+          docker run --privileged --cap-add MKNOD --rm -v test-data:/workdir olidacombe/tpm-luks-ci ./make-luks-image.sh crypty
 
       - name: Clean up test data volume
         run: |
