@@ -159,15 +159,6 @@ jobs:
           # And: https://github.com/docker/buildx#--cache-tonametypetypekeyvalue
           cache-to: type=local,mode=max,dest=/tmp/.buildx-cache-new
 
-      - name: Move cache
-        run: |
-          rm -rf /tmp/.buildx-cache
-          mv /tmp/.buildx-cache-new /tmp/.buildx-cache
-
-  binary-test:
-    name: Binary Test
-    runs-on: ubuntu-latest
-    steps: 
       - name: Create encrypted disk image for tests
         run: |
           docker volume create test-data
@@ -176,3 +167,8 @@ jobs:
       - name: Clean up test data volume
         run: |
           docker volume rm test-data
+
+      - name: Move cache
+        run: |
+          rm -rf /tmp/.buildx-cache
+          mv /tmp/.buildx-cache-new /tmp/.buildx-cache
