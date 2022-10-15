@@ -108,6 +108,11 @@ jobs:
     permissions:
       packages: write
       contents: read
+    services:
+      swtpm:
+        image: ${{ github.repository_owner }}/swtpm
+        options: >-
+          --security-opt seccomp=unconfined
     steps: 
       - uses: actions/checkout@v2
 
@@ -167,7 +172,7 @@ jobs:
 
       - name: Run bats tests against static bin
         run: |
-          docker run -v test-data:/data bats-test
+          docker run --privileged --cap-add MKNOD --rm -v test-data:/data -e TCTI="swtpm:port=2321,host=swtpm" bats-test
 
       - name: Clean up test data volume
         run: |

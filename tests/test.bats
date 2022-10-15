@@ -17,3 +17,8 @@ setup() {
     run tpm-luks
     assert_output --partial "Usage: tpm-luks [OPTIONS] <COMMAND>"
 }
+
+@test "outputs PCR digest" {
+    run tpm-luks digest
+    assert_success
+}
