@@ -150,10 +150,9 @@ jobs:
           builder: ${{ steps.buildx.outputs.name }}
           # Set the desired build target here
           target: binary
-          push: false
-          load: true
-          #tags: ${{ steps.prep.outputs.tagged_image }}
-          tags: tmp-luks
+          #push: false
+          #load: true
+          tags: ${{ steps.prep.outputs.tagged_image }}
           #cache-from: type=local,src=/tmp/.buildx-cache
           # Note the mode=max here
           # More: https://github.com/moby/buildkit#--export-cache-options
@@ -174,7 +173,7 @@ jobs:
           file: ./tests/Dockerfile
           builder: ${{ steps.buildx.outputs.name }}
           build-args: |
-            BIN_IMAGE=tpm-luks
+            BIN_IMAGE=${{ steps.prep.outputs.tagged_image }}
           # Set the desired build target here
           target: test
           push: false
