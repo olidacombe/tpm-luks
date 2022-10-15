@@ -151,7 +151,7 @@ jobs:
           # Set the desired build target here
           target: binary
           push: false
-          load: true
+          #load: true
           tags: ${{ steps.prep.outputs.tagged_image }}
           #cache-from: type=local,src=/tmp/.buildx-cache
           # Note the mode=max here
@@ -177,7 +177,7 @@ jobs:
           # Set the desired build target here
           target: test
           push: false
-          load: true
+          #load: true
           tags: bats-test
           #cache-from: type=local,src=/tmp/.buildx-cache
           # Note the mode=max here
