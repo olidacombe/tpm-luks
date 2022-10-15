@@ -1,5 +1,5 @@
-#ARG BIN_IMAGE=ghcr.io/olidacombe/tpm-luks
-#FROM ${BIN_IMAGE} AS bin
+ARG BIN_IMAGE=ghcr.io/olidacombe/tpm-luks
+FROM ${BIN_IMAGE} AS bin
 
 FROM alpine:latest AS test
 
@@ -10,6 +10,10 @@ RUN apk add --no-cache \
 RUN ls /
 
 WORKDIR /test
+
+RUN mkdir bin
+
+COPY --from=bin /tpm-luks bin/
 
 RUN git clone --depth 1 --branch v1.8.0 https://github.com/bats-core/bats-core.git bats
 RUN mkdir test_helper

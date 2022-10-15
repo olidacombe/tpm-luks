@@ -170,6 +170,8 @@ jobs:
           context: ./tests
           file: ./tests/Dockerfile
           builder: ${{ steps.buildx.outputs.name }}
+          build-args: |
+            BIN_IMAGE=${{ steps.prep.outputs.tagged_image }}
           # Set the desired build target here
           target: test
           push: false
