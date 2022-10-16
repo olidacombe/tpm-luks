@@ -4,9 +4,7 @@ fn main() {
             build_static.to_lowercase().as_ref(),
             "1" | "y" | "yes" | "true"
         ) {
-            println!("cargo:rustc-link-arg=-static");
             println!("cargo:rustc-link-arg=-l:libc.a");
-            println!("cargo:rustc-link-arg=-l:libstdc++.a");
             println!("cargo:rustc-link-lib=static=crypto");
             println!("cargo:rustc-link-lib=static=cryptsetup");
             println!("cargo:rustc-link-lib=static=devmapper");

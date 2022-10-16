@@ -16,6 +16,8 @@ setup() {
     CRYPT_DEV_NAME=crypty
     PATH="/test/bin:$PATH"
     PASSPHRASE=${PASSPHRASE:-insecure}
+    RUST_BACKTRACE=full
+    RUST_LOG=debug
 
     mkdir -p $MNT >&2
     losetup $LOOPDEVICE $ENCRYPTED_IMAGE >&2
@@ -45,7 +47,7 @@ setup() {
 
 @test "seals and unseals" {
     run tpm-luks seal "$LOOPDEVICE"
-    assert success
+    assert_success
     run tum-luks unseal "$LOOPDEVICE" "$CRYPT_DEV_NAME"
     assert_success
     mount "$LUKS_DEV" "$MNT"
