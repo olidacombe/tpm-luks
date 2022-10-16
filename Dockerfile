@@ -53,7 +53,7 @@ RUN cd tpm2-tss-$TPM2_TSS_VER && \
 
 RUN cd tpm2-tss-$TPM2_TSS_VER && \
     ./bootstrap && \
-    LIBS="-l:libc.a" CRYPTO_CFLAGS="$OPENSSL_CFLAGS" CRYPTO_LIBS="$OPENSSL_LIBS" \
+    LIBS="-l:libc.a -l:libstdc++.a" CRYPTO_CFLAGS="$OPENSSL_CFLAGS" CRYPTO_LIBS="$OPENSSL_LIBS" \
     ./configure \
     --disable-doxygen-doc \
     --enable-fapi=no \
@@ -101,6 +101,7 @@ RUN cd cryptsetup-${CRYPTSETUP_VER} && \
     --disable-external \
     --disable-keyring \
     --disable-nls \
+    --disable-shared \
     --disable-ssh-token \
     --enable-static \
     --disable-udev \
