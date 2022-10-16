@@ -1,28 +1,5 @@
-setup_file() {
-    DATA="/data"
-    ENCRYPTED_IMAGE="${DATA}/crypty.img"
-    LOOPDEVICE=$(losetup -f)
-    MNT=/test/mnt
-    PATH="/test/bin:$PATH"
-    PASSPHRASE=${PASSPHRASE:-insecure}
-
-    mkdir -p $MNT >&2
-    losetup $LOOPDEVICE $ENCRYPTED_IMAGE >&2
-
-    export DATA
-    export ENCRYPTED_IMAGE
-    export LOOPDEVICE
-    export MNT
-    export PATH
-    export PASSPHRASE
-}
-
 teardown() {
     umount $MNT || true
-}
-
-teardown_file() {
-    umount $MNT
     losetup -d $LOOPDEVICE
 }
 
@@ -30,6 +7,18 @@ setup() {
     load 'test_helper/bats-support/load'
     load 'test_helper/bats-assert/load'
     load 'test_helper/bats-file/load'
+
+    DATA="/data"
+    ENCRYPTED_IMAGE="${DATA}/crypty.img"
+    LOOPDEVICE=$(losetup -f)
+    LUKS_DEV="/dev/mapper/$CRYPT_DEV_NAME"
+    MNT=/test/mnt
+    CRYPT_DEV_NAME=crypty
+    PATH="/test/bin:$PATH"
+    PASSPHRASE=${PASSPHRASE:-insecure}
+
+    mkdir -p $MNT >&2
+    losetup $LOOPDEVICE $ENCRYPTED_IMAGE >&2
 }
 
 @test "have encrypted disk image" {
@@ -49,11 +38,16 @@ setup() {
 }
 
 @test "outputs PCR digest" {
-    skip "not working yet"
     run tpm-luks digest
     assert_success
+    assert_output --partial "Current PCR Digest: "
 }
 
 @test "seals and unseals" {
-    skip "todo"
+    run tpm-luks seal "$LOOPDEVICE"
+    assert success
+    run tum-luks unseal "$LOOPDEVICE" "$CRYPT_DEV_NAME"
+    assert_success
+    mount "$LUKS_DEV" "$MNT"
+    assert_file_exist "${MNT}/plain.txt"
 }
