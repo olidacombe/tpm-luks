@@ -98,7 +98,6 @@ RUN cd cryptsetup-${CRYPTSETUP_VER} && \
     --disable-asciidoc \
     --disable-blkid \
     --disable-cryptsetup \
-    --disable-external \
     --disable-keyring \
     --disable-nls \
     --disable-shared \
@@ -123,6 +122,7 @@ RUN cargo install cargo-chef
 
 ENV \
     PKG_CONFIG_ALL_STATIC=true \
+    RUSTFLAGS="-C relocation-model=static" \
     TPM_LUKS_BUILD_STATIC=1 \
     TSS2_SYS_DYNAMIC=0 \
     TSS2_SYS_STATIC=1

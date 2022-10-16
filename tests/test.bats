@@ -40,7 +40,7 @@ setup() {
 
 @test "binary is statically linked" {
     run ldd $(which tpm-luks)
-    assert_output "statically linked"
+    assert_output --partial "Not a valid dynamic program"
 }
 
 @test "help output by default" {
