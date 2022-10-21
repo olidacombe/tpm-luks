@@ -159,6 +159,7 @@ jobs:
               --rm \
               -v test-data:/workdir \
               -e PASSPHRASE=insecure \
+              -e TSS2_LOG=all+debug \
               olidacombe/tpm-luks-ci \
               ./make-luks-image.sh crypty
 
