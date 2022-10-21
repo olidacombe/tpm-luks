@@ -56,9 +56,12 @@ RUN cd tpm2-tss-$TPM2_TSS_VER && \
     LIBS="-l:libc.a" CRYPTO_CFLAGS="$OPENSSL_CFLAGS" CRYPTO_LIBS="$OPENSSL_LIBS" \
     ./configure \
     --disable-doxygen-doc \
-    --enable-fapi=no \
-    --enable-shared=no \
-    --enable-static=yes \
+    --disable-fapi \
+    --enable-nodl \
+    --disable-shared \
+    --enable-static \
+    --disable-tcti-swtpm \
+    --disable-tcti-mssim \
     && \
     make -j$(nproc) && \
     make install
@@ -135,11 +138,11 @@ RUN cargo chef prepare --recipe-path recipe.json
 
 FROM rust AS builder
 COPY --from=planner /workdir/recipe.json recipe.json
-RUN cargo chef cook --release --target x86_64-unknown-linux-musl --recipe-path recipe.json
+RUN cargo chef cook --target x86_64-unknown-linux-musl --recipe-path recipe.json
 
 COPY . .
-RUN cargo build --release --target=x86_64-unknown-linux-musl
+RUN cargo build --target=x86_64-unknown-linux-musl
 
 FROM scratch AS binary
 
-COPY --from=builder /workdir/target/x86_64-unknown-linux-musl/release/tpm-luks .
+COPY --from=builder /workdir/target/x86_64-unknown-linux-musl/debug/tpm-luks .

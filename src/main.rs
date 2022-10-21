@@ -7,7 +7,7 @@ fn main() -> Result<()> {
     env_logger::init_from_env(
         env_logger::Env::default().filter_or(env_logger::DEFAULT_FILTER_ENV, "info"),
     );
-    env::set_var("TSS2_LOG", "all+NONE");
+    env::set_var("TSS2_LOG", "all+debug");
     cli.run()?;
     Ok(())
 }
