@@ -5,6 +5,7 @@ FROM alpine:latest AS test
 
 RUN apk add --no-cache \
     bash \
+    cryptsetup \
     git
 
 RUN ls /

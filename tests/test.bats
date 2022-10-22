@@ -1,6 +1,7 @@
 teardown() {
     umount $MNT || true
-    losetup -d $LOOPDEVICE
+    losetup -d $LOOPDEVICE || true
+    cryptsetup close $CRYPT_DEV_NAME || true
 }
 
 setup() {
@@ -11,9 +12,9 @@ setup() {
     DATA="/data"
     ENCRYPTED_IMAGE="${DATA}/crypty.img"
     LOOPDEVICE=$(losetup -f)
+    CRYPT_DEV_NAME=crypty
     LUKS_DEV="/dev/mapper/$CRYPT_DEV_NAME"
     MNT=/test/mnt
-    CRYPT_DEV_NAME=crypty
     PATH="/test/bin:$PATH"
     PASSPHRASE=${PASSPHRASE:-insecure}
     RUST_BACKTRACE=full
@@ -48,8 +49,9 @@ setup() {
 @test "seals and unseals" {
     run tpm-luks seal "$LOOPDEVICE"
     assert_success
-    run tum-luks unseal "$LOOPDEVICE" "$CRYPT_DEV_NAME"
+    run tpm-luks unseal "$LOOPDEVICE" "$CRYPT_DEV_NAME"
     assert_success
-    mount "$LUKS_DEV" "$MNT"
+    run mount -t ext4 "$LUKS_DEV" "$MNT"
+    assert_success
     assert_file_exist "${MNT}/plain.txt"
 }

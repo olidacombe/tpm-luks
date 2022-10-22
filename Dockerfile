@@ -53,7 +53,7 @@ RUN cd tpm2-tss-$TPM2_TSS_VER && \
 
 RUN cd tpm2-tss-$TPM2_TSS_VER && \
     ./bootstrap && \
-    LIBS="-l:libc.a" CRYPTO_CFLAGS="$OPENSSL_CFLAGS" CRYPTO_LIBS="$OPENSSL_LIBS" \
+    CRYPTO_CFLAGS="$OPENSSL_CFLAGS" CRYPTO_LIBS="$OPENSSL_LIBS" \
     ./configure \
     --disable-doxygen-doc \
     --disable-fapi \
@@ -75,7 +75,10 @@ RUN cd json-c-${JSON_C_VER} && \
     sed -i 's/add_subdirectory(doc)//' CMakeLists.txt && \
     mkdir build && \
     cd build && \
-    cmake -DCMAKE_INSTALL_PREFIX=/usr/local .. && \
+    cmake \
+      -DBUILD_SHARED_LIBS=OFF \
+      -DCMAKE_INSTALL_PREFIX=/usr/local \
+      .. && \
     make all install
 
 ### libdevicemapper
