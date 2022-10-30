@@ -108,7 +108,7 @@ RUN cd tpm2-tss-$TPM2_TSS_VER && \
     ./bootstrap && \
     CRYPTO_CFLAGS="$OPENSSL_CFLAGS" CRYPTO_LIBS="$OPENSSL_LIBS" \
     STATIC_TCTI_OPTS="$( for t in device swtpm mssim; do \
-      echo -- --$( [ "${TPM_LUKS_BUILD_STATIC_TCTI}" = "$t" ] && echo en || echo dis ] )able-$t; \
+      echo -n --$( [ "${TPM_LUKS_BUILD_STATIC_TCTI}" = "$t" ] && echo en || echo dis )able-$t\ ; \
     done )" \
     ./configure \
     --disable-doxygen-doc \
