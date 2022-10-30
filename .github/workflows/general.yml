@@ -150,6 +150,17 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
+      - name: Build image with static test binary
+        uses: docker/build-push-action@v2
+        with:
+          context: .
+          builder: ${{ steps.buildx.outputs.name }}
+          target: binary
+          push: true
+          tags: ${{ steps.prep.outputs.tagged_image }}-test
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
       - name: Create encrypted disk image for tests
         run: |
           docker volume create test-data
@@ -170,7 +181,7 @@ jobs:
           file: ./tests/Dockerfile
           builder: ${{ steps.buildx.outputs.name }}
           build-args: |
-            BIN_IMAGE=${{ steps.prep.outputs.tagged_image }}
+            BIN_IMAGE=${{ steps.prep.outputs.tagged_image }}-test
           target: test
           push: false
           load: true
