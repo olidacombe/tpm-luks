@@ -1,4 +1,7 @@
 fn main() {
+    // it seems TCTIs are loaded dynamically, and if you choose to static link them,
+    // you may link only one without "multiple definition" linker errors.
+    // So we choose `device` by default and `swtpm` for CI tests.
     let static_tcti = option_env!("TPM_LUKS_BUILD_STATIC_TCTI").unwrap_or("device");
     if let Some(build_static) = option_env!("TPM_LUKS_BUILD_STATIC") {
         if matches!(

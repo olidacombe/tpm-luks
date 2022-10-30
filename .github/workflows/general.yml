@@ -196,8 +196,8 @@ jobs:
           --cap-add MKNOD \
           --rm \
           -e PASSPHRASE=insecure \
-          -e RUST_BACKTRACE=full
-          -e RUST_LOG=debug
+          -e RUST_BACKTRACE=full \
+          -e RUST_LOG=debug \
           -e TCTI="swtpm:port=2321,host=swtpm" \
           -e TSS2_LOG=all+debug \
           -v test-data:/data \
