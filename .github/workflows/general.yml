@@ -154,6 +154,8 @@ jobs:
         uses: docker/build-push-action@v2
         with:
           context: .
+          build-args: |
+            TPM_LUKS_BUILD_STATIC_TCTI=swtpm
           builder: ${{ steps.buildx.outputs.name }}
           target: binary
           push: true

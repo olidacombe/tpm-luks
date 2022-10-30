@@ -126,10 +126,12 @@ ENV PATH=/root/.cargo/bin:$PATH
 
 RUN cargo install cargo-chef
 
+ARG TPM_LUKS_BUILD_STATIC_TCTI=device
 ENV \
     PKG_CONFIG_ALL_STATIC=true \
     RUSTFLAGS="-C relocation-model=static" \
     TPM_LUKS_BUILD_STATIC=1 \
+    TPM_LUKS_BUILD_STATIC_TCTI=${TPM_LUKS_BUILD_STATIC_TCTI} \
     TSS2_SYS_DYNAMIC=0 \
     TSS2_SYS_STATIC=1
 
