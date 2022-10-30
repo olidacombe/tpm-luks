@@ -107,16 +107,15 @@ ARG TPM_LUKS_BUILD_STATIC_TCTI=device
 RUN cd tpm2-tss-$TPM2_TSS_VER && \
     ./bootstrap && \
     CRYPTO_CFLAGS="$OPENSSL_CFLAGS" CRYPTO_LIBS="$OPENSSL_LIBS" \
-    STATIC_TCTI_OPTS="$( for t in device swtpm mssim; do \
-      echo -n --$( [ "${TPM_LUKS_BUILD_STATIC_TCTI}" = "$t" ] && echo en || echo dis )able-$t\ ; \
-    done )" \
     ./configure \
     --disable-doxygen-doc \
     --disable-fapi \
     --enable-nodl \
     --disable-shared \
     --enable-static \
-    $STATIC_TCTI_OPTS \
+    $( for t in device swtpm mssim; do \
+      echo -n --$( [ "${TPM_LUKS_BUILD_STATIC_TCTI}" = "$t" ] && echo en || echo dis )able-tcti-$t\ ; \
+    done ) \
     && \
     make -j$(nproc) && \
     make install
