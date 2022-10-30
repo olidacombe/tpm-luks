@@ -102,15 +102,21 @@ RUN curl -sL https://github.com/tpm2-software/tpm2-tss/archive/refs/tags/${TPM2_
 RUN cd tpm2-tss-$TPM2_TSS_VER && \
     sed -i "/AC_INIT/"'!'"b;n;c\[${TPM2_TSS_VER}\]," configure.ac
 
+ARG TPM_LUKS_BUILD_STATIC_TCTI=device
+
 RUN cd tpm2-tss-$TPM2_TSS_VER && \
     ./bootstrap && \
     CRYPTO_CFLAGS="$OPENSSL_CFLAGS" CRYPTO_LIBS="$OPENSSL_LIBS" \
+    STATIC_TCTI_OPTS="$( for t in device swtpm mssim; do \
+      echo -- --$( [ "${TPM_LUKS_BUILD_STATIC_TCTI}" = "$t" ] && echo en || echo dis ] )able-$t; \
+    done )" \
     ./configure \
     --disable-doxygen-doc \
     --disable-fapi \
     --enable-nodl \
     --disable-shared \
     --enable-static \
+    $STATIC_TCTI_OPTS \
     && \
     make -j$(nproc) && \
     make install
@@ -124,8 +130,6 @@ RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
 ENV PATH=/root/.cargo/bin:$PATH
 
 RUN cargo install cargo-chef
-
-ARG TPM_LUKS_BUILD_STATIC_TCTI=device
 
 ENV \
     PKG_CONFIG_ALL_STATIC=true \
