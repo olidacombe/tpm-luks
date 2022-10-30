@@ -43,29 +43,6 @@ RUN cd openssl-${OPENSSL_VER} && \
 
 ENV OPENSSL_CFLAGS="-I${OPENSSL_DIR}/include" OPENSSL_LIBS="-L${OPENSSL_DIR}/lib -lcrypto"
 
-### TPM2 TSS
-ENV TPM2_TSS_VER="3.2.0"
-RUN curl -sL https://github.com/tpm2-software/tpm2-tss/archive/refs/tags/${TPM2_TSS_VER}.tar.gz | tar xz
-
-# Hack in the release version so pkg-config will work
-RUN cd tpm2-tss-$TPM2_TSS_VER && \
-    sed -i "/AC_INIT/"'!'"b;n;c\[${TPM2_TSS_VER}\]," configure.ac
-
-RUN cd tpm2-tss-$TPM2_TSS_VER && \
-    ./bootstrap && \
-    CRYPTO_CFLAGS="$OPENSSL_CFLAGS" CRYPTO_LIBS="$OPENSSL_LIBS" \
-    ./configure \
-    --disable-doxygen-doc \
-    --disable-fapi \
-    --enable-nodl \
-    --disable-shared \
-    --enable-static \
-    --disable-tcti-swtpm \
-    --disable-tcti-mssim \
-    && \
-    make -j$(nproc) && \
-    make install
-
 ### JSON-C
 ENV JSON_C_VER="0.16"
 
@@ -117,6 +94,28 @@ RUN cd cryptsetup-${CRYPTSETUP_VER} && \
 
 FROM build-base AS rust
 
+### TPM2 TSS
+ENV TPM2_TSS_VER="3.2.0"
+RUN curl -sL https://github.com/tpm2-software/tpm2-tss/archive/refs/tags/${TPM2_TSS_VER}.tar.gz | tar xz
+
+# Hack in the release version so pkg-config will work
+RUN cd tpm2-tss-$TPM2_TSS_VER && \
+    sed -i "/AC_INIT/"'!'"b;n;c\[${TPM2_TSS_VER}\]," configure.ac
+
+RUN cd tpm2-tss-$TPM2_TSS_VER && \
+    ./bootstrap && \
+    CRYPTO_CFLAGS="$OPENSSL_CFLAGS" CRYPTO_LIBS="$OPENSSL_LIBS" \
+    ./configure \
+    --disable-doxygen-doc \
+    --disable-fapi \
+    --enable-nodl \
+    --disable-shared \
+    --enable-static \
+    && \
+    make -j$(nproc) && \
+    make install
+
+
 ### Rust
 # install rust
 RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
@@ -127,6 +126,7 @@ ENV PATH=/root/.cargo/bin:$PATH
 RUN cargo install cargo-chef
 
 ARG TPM_LUKS_BUILD_STATIC_TCTI=device
+
 ENV \
     PKG_CONFIG_ALL_STATIC=true \
     RUSTFLAGS="-C relocation-model=static" \
