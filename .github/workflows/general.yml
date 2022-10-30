@@ -195,9 +195,12 @@ jobs:
           --privileged \
           --cap-add MKNOD \
           --rm \
-          -v test-data:/data \
-          -e TCTI="swtpm:port=2321,host=swtpm" \
           -e PASSPHRASE=insecure \
+          -e RUST_BACKTRACE=full
+          -e RUST_LOG=debug
+          -e TCTI="swtpm:port=2321,host=swtpm" \
+          -e TSS2_LOG=all+debug \
+          -v test-data:/data \
           bats-test
 
       - name: Clean up test data volume
