@@ -1,5 +1,5 @@
 fn main() {
-    let static_tcti = option_env!("TPM_LUKS_BUILD_STATIC_TCTI").map_or("device");
+    let static_tcti = option_env!("TPM_LUKS_BUILD_STATIC_TCTI").unwrap_or("device");
     if let Some(build_static) = option_env!("TPM_LUKS_BUILD_STATIC") {
         if matches!(
             build_static.to_lowercase().as_ref(),
