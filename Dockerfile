@@ -149,8 +149,8 @@ COPY --from=planner /workdir/recipe.json recipe.json
 RUN cargo chef cook --target x86_64-unknown-linux-musl --recipe-path recipe.json
 
 COPY . .
-RUN cargo build --target=x86_64-unknown-linux-musl
+RUN cargo build --release --target=x86_64-unknown-linux-musl
 
 FROM scratch AS binary
 
-COPY --from=builder /workdir/target/x86_64-unknown-linux-musl/debug/tpm-luks .
+COPY --from=builder /workdir/target/x86_64-unknown-linux-musl/release/tpm-luks .
