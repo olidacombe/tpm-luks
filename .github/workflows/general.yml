@@ -139,17 +139,6 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Build image with static binary
-        uses: docker/build-push-action@v2
-        with:
-          context: .
-          builder: ${{ steps.buildx.outputs.name }}
-          target: binary
-          push: true
-          tags: ${{ steps.prep.outputs.tagged_image }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
-
       - name: Build image with dynamic release binary for `bats` testing
         uses: docker/build-push-action@v2
         with:
@@ -206,3 +195,14 @@ jobs:
       - name: Clean up test data volume
         run: |
           docker volume rm test-data
+
+      - name: Build image with static binary
+        uses: docker/build-push-action@v2
+        with:
+          context: .
+          builder: ${{ steps.buildx.outputs.name }}
+          target: binary
+          push: true
+          tags: ${{ steps.prep.outputs.tagged_image }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
