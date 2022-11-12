@@ -145,7 +145,6 @@ jobs:
           context: .
           file: ./Dockerfile-bin-dyn
           builder: ${{ steps.buildx.outputs.name }}
-          target: binary
           push: true
           tags: ${{ steps.prep.outputs.tagged_image }}-dyn-test
           cache-from: type=gha
