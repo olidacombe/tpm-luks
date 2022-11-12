@@ -1,16 +1,17 @@
-FROM alpine:latest
+FROM ubuntu:22.04
 
-RUN apk add --no-cache \
-	alpine-sdk \
-    	bash \
-	cryptsetup \
-	cryptsetup-dev \
+RUN apt-get update
+RUN apt-get install -y \
+	bash \
+	build-essential \
 	curl \
-	e2fsprogs \
 	git \
-	tpm2-tss-dev
+	libcryptsetup-dev \
+	libtss2-dev \
+	pkg-config \
+	swtpm \
+	swtpm-tools \
+	tss2
 
-RUN mkdir /workdir
-WORKDIR /workdir
-
-COPY make-luks-image.sh .
+RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
+ENV PATH="/root/.cargo/bin:${PATH}"
