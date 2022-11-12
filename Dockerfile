@@ -92,8 +92,6 @@ RUN cd cryptsetup-${CRYPTSETUP_VER} && \
     make && make install
     # --disable-shared \
 
-FROM build-base AS rust
-
 ### TPM2 TSS
 ENV TPM2_TSS_VER="3.2.0"
 RUN curl -sL https://github.com/tpm2-software/tpm2-tss/archive/refs/tags/${TPM2_TSS_VER}.tar.gz | tar xz
@@ -120,6 +118,7 @@ RUN cd tpm2-tss-$TPM2_TSS_VER && \
     make -j$(nproc) && \
     make install
 
+FROM build-base AS rust
 
 ### Rust
 # install rust

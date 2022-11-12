@@ -150,12 +150,10 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
-      - name: Build image with static test binary
+      - name: Build image with dynamic release binary for `bats` testing
         uses: docker/build-push-action@v2
         with:
           context: .
-          build-args: |
-            TPM_LUKS_BUILD_STATIC_TCTI=swtpm
           builder: ${{ steps.buildx.outputs.name }}
           target: binary
           push: true
@@ -191,7 +189,7 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
-      - name: Run bats tests against static bin
+      - name: Run bats tests against dynamic release binary
         run: |
           docker run \
           --privileged \
