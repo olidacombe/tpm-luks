@@ -31,6 +31,7 @@ setup() {
 }
 
 @test "binary is statically linked" {
+    skip "we are not building a static binary which speaks \`swtpm\` yet"
     run ldd $(which tpm-luks)
     assert_output --partial "Not a valid dynamic program"
 }
