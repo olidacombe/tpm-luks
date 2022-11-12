@@ -53,7 +53,10 @@ jobs:
         with:
           command: test
         env:
-          TCTI: swtpm:port=2321,host=swtpm
+          RUST_BACKTRACE: full
+          RUST_LOG: debug
+          TCTI: "swtpm:port=2321,host=swtpm"
+          TSS2_LOG: all+debug
 
   fmt:
     name: Rustfmt
