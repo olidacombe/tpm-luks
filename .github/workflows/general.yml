@@ -143,7 +143,7 @@ jobs:
         uses: docker/build-push-action@v2
         with:
           context: .
-          file: ./tests/Dockerfile-bin-dyn
+          file: ./Dockerfile-bin-dyn
           builder: ${{ steps.buildx.outputs.name }}
           target: binary
           push: true
