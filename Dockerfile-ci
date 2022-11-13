@@ -10,6 +10,7 @@ RUN apt-get install -y \
 	libcryptsetup-dev \
 	libtss2-dev \
 	pkg-config \
+	swtpm-tools \
 	tss2
 
 WORKDIR /workdir

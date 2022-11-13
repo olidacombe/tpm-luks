@@ -124,8 +124,10 @@ jobs:
         run: |
           TAG=$(echo $GITHUB_SHA | head -c7)
           IMAGE="${REGISTRY}/$REPO"
+          NETWORK=$(docker network ls --filter=name=github_network_ --format="{{.ID}}")
           echo ::set-output name=tagged_image::${IMAGE}:${TAG}
           echo ::set-output name=tag::${TAG}
+          echo ::set-output name=network::${NETWORK}
 
       - name: Set up Docker Buildx
         id: buildx
@@ -187,6 +189,7 @@ jobs:
           --privileged \
           --cap-add MKNOD \
           --rm \
+          --network=${{ steps.prep.outputs.network }} \
           -e PASSPHRASE=insecure \
           -e RUST_BACKTRACE=full \
           -e RUST_LOG=debug \
