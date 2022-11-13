@@ -12,4 +12,6 @@ RUN apt-get install -y \
 	pkg-config \
 	tss2
 
-COPY ./make-luks-image.sh .
+WORKDIR /workdir
+
+COPY ./make-luks-image.sh /usr/bin
