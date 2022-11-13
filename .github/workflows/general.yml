@@ -11,17 +11,20 @@ on:
 
 env:
   CARGO_TERM_COLOR: always
-
+  # TODO dry usages of this same string in image:
+  CI_IMAGE: ${{ github.repository }}-ci
+  REGISTRY: ghcr.io
+  REPO: ${{ github.repository }}
+  #SWTPM_IMAGE: ${{ github.repository_owner }}/swtpm
 jobs:
-    
   test:
     name: Test
     runs-on: ubuntu-latest
     container:
-      image: olidacombe/tpm-luks-ci
+      image: ${{ github.repository }}-ci
     services:
       swtpm:
-        image: olidacombe/swtpm
+        image: ${{ github.repository_owner }}/swtpm
         options: >-
           --security-opt seccomp=unconfined
     steps:
@@ -50,7 +53,10 @@ jobs:
         with:
           command: test
         env:
-          TCTI: swtpm:port=2321,host=swtpm
+          RUST_BACKTRACE: full
+          RUST_LOG: debug
+          TCTI: "swtpm:port=2321,host=swtpm"
+          TSS2_LOG: all+debug
 
   fmt:
     name: Rustfmt
@@ -71,10 +77,20 @@ jobs:
     name: Clippy
     runs-on: ubuntu-latest
     container:
-      image: olidacombe/tpm-luks-ci
+      image: ${{ github.repository }}-ci
     steps:
       - name: Checkout repository
         uses: actions/checkout@v2
+
+      - name: Cache dependencies
+        id: cache-dependencies
+        uses: actions/cache@v2
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
 
       - name: Install stable toolchain
         uses: actions-rs/toolchain@v1
@@ -88,3 +104,111 @@ jobs:
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
           args: -- -D warnings
+
+  binary:
+    name: Binary
+    runs-on: ubuntu-latest
+    permissions:
+      packages: write
+      contents: read
+    services:
+      swtpm:
+        image: ${{ github.repository_owner }}/swtpm
+        options: >-
+          --security-opt seccomp=unconfined
+    steps: 
+      - uses: actions/checkout@v2
+
+      - name: Prepare
+        id: prep
+        run: |
+          TAG=$(echo $GITHUB_SHA | head -c7)
+          IMAGE="${REGISTRY}/$REPO"
+          NETWORK=$(docker network ls --filter=name=github_network_ --format="{{.ID}}")
+          echo ::set-output name=tagged_image::${IMAGE}:${TAG}
+          echo ::set-output name=tag::${TAG}
+          echo ::set-output name=network::${NETWORK}
+
+      - name: Set up Docker Buildx
+        id: buildx
+        # Use the action from the master, as we've seen some inconsistencies with @v1
+        # Issue: https://github.com/docker/build-push-action/issues/286
+        uses: docker/setup-buildx-action@master
+        with:
+          install: true
+
+      - name: Log in to the Container registry
+        uses: docker/login-action@f054a8b539a109f9f41c372932f1ae047eff08c9
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Create encrypted disk image for tests
+        run: |
+          docker volume create test-data
+          docker run \
+              --privileged \
+              --cap-add MKNOD \
+              --rm \
+              -v test-data:/workdir \
+              -e PASSPHRASE=insecure \
+              -e TSS2_LOG=all+debug \
+              olidacombe/tpm-luks-ci \
+              make-luks-image.sh crypty
+
+      - name: Build image with dynamic release binary for `bats` testing
+        uses: docker/build-push-action@v2
+        with:
+          context: .
+          file: ./Dockerfile-bin-dyn
+          builder: ${{ steps.buildx.outputs.name }}
+          push: true
+          tags: ${{ steps.prep.outputs.tagged_image }}-dyn-test
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Build bats testing image
+        uses: docker/build-push-action@v2
+        with:
+          context: ./tests
+          file: ./tests/Dockerfile
+          builder: ${{ steps.buildx.outputs.name }}
+          build-args: |
+            BIN_IMAGE=${{ steps.prep.outputs.tagged_image }}-dyn-test
+          target: test
+          push: false
+          load: true
+          tags: bats-test
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Run bats tests against dynamic release binary
+        run: |
+          docker run \
+          --privileged \
+          --cap-add MKNOD \
+          --rm \
+          --network=${{ steps.prep.outputs.network }} \
+          -e PASSPHRASE=insecure \
+          -e RUST_BACKTRACE=full \
+          -e RUST_LOG=debug \
+          -e TCTI="swtpm:port=2321,host=swtpm" \
+          -e TSS2_LOG=all+debug \
+          -v test-data:/data \
+          bats-test
+
+      - name: Clean up test data volume
+        run: |
+          docker volume rm test-data
+
+      - name: Build image with static binary
+        uses: docker/build-push-action@v2
+        with:
+          context: .
+          builder: ${{ steps.buildx.outputs.name }}
+          target: binary
+          push: true
+          tags: ${{ steps.prep.outputs.tagged_image }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max

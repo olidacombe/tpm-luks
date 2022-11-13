@@ -49,8 +49,12 @@ unseal() {
 	teardown
 }
 
-cargo build --release
-tpm_luks=target/release/tpm-luks
+if [ -n ${BUILD+x} ]; then
+	cargo build --release
+	tpm_luks=target/release/tpm-luks
+else
+	tpm_luks=./tpm-luks
+fi
 
 seal
 unseal

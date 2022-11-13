@@ -1,4 +1,4 @@
-use cryptsetup_rs::api::LuksCryptDevice;
+use cryptsetup_rs::api::{luks_version, LuksCryptDevice};
 use cryptsetup_rs::open;
 use either::for_both;
 use std::fmt::Debug;
@@ -36,6 +36,9 @@ impl LuksManager {
     }
     pub fn new(path: &PathBuf) -> Result<Self> {
         log::debug!("Attempting to get LUKS device `{}`", path.display());
+        log::debug!("Getting version");
+        let version = luks_version(path)?;
+        log::debug!("LUKS version: {}", version);
         let dev = open(path)?.luks()?;
         let dev: Box<dyn LuksCryptDevice> = for_both!(dev, d => Box::new(d));
         Ok(Self { dev })

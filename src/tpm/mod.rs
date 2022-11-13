@@ -392,8 +392,9 @@ impl PcrAuthedContext {
 static CONTEXT: Lazy<Mutex<tss_esapi::Context>> = Lazy::new(|| {
     use tss_esapi::tcti_ldr::TctiNameConf;
 
-    let context =
-        tss_esapi::Context::new(TctiNameConf::from_environment_variable().unwrap()).unwrap();
+    let conf = TctiNameConf::from_environment_variable().expect("Invalid TCTI config");
+    log::debug!("TCTI config {:?}", conf);
+    let context = tss_esapi::Context::new(conf).expect("Failed to init TPM context");
     Mutex::new(context)
 });
 

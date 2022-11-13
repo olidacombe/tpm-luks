@@ -1,4 +1,4 @@
-FROM alpine:latest
+FROM alpine:latest AS build-base
 
 RUN apk add --no-cache \
     alpine-sdk \
@@ -25,8 +25,6 @@ RUN apk add --no-cache \
 RUN mkdir /workdir
 WORKDIR /libworkdir
 
-ENV PIE_CFLAGS="-fPIE -pie"
-
 ### OpenSSL
 ENV \
     OPENSSL_DIR="/usr/local/ssl" \
@@ -34,7 +32,6 @@ ENV \
 RUN curl -sL https://www.openssl.org/source/openssl-${OPENSSL_VER}.tar.gz | tar xz
 
 RUN cd openssl-${OPENSSL_VER} && \
-    CFLAGS="$_TODO_PIE_CFLAGS" \
     ./Configure \
     --openssldir=${OPENSSL_DIR} \
     --prefix=${OPENSSL_DIR} \
@@ -46,26 +43,6 @@ RUN cd openssl-${OPENSSL_VER} && \
 
 ENV OPENSSL_CFLAGS="-I${OPENSSL_DIR}/include" OPENSSL_LIBS="-L${OPENSSL_DIR}/lib -lcrypto"
 
-### TPM2 TSS
-ENV TPM2_TSS_VER="3.2.0"
-RUN curl -sL https://github.com/tpm2-software/tpm2-tss/archive/refs/tags/${TPM2_TSS_VER}.tar.gz | tar xz
-
-# Hack in the release version so pkg-config will work
-RUN cd tpm2-tss-$TPM2_TSS_VER && \
-    sed -i "/AC_INIT/"'!'"b;n;c\[${TPM2_TSS_VER}\]," configure.ac
-
-RUN cd tpm2-tss-$TPM2_TSS_VER && \
-    ./bootstrap && \
-    LIBS="-l:libc.a" CFLAGS="$_TODO_PIE_CFLAGS" CRYPTO_CFLAGS="$OPENSSL_CFLAGS" CRYPTO_LIBS="$OPENSSL_LIBS" \
-    ./configure \
-    --disable-doxygen-doc \
-    --enable-fapi=no \
-    --enable-shared=no \
-    --enable-static=yes \
-    && \
-    make -j$(nproc) && \
-    make install
-
 ### JSON-C
 ENV JSON_C_VER="0.16"
 
@@ -75,7 +52,10 @@ RUN cd json-c-${JSON_C_VER} && \
     sed -i 's/add_subdirectory(doc)//' CMakeLists.txt && \
     mkdir build && \
     cd build && \
-    cmake -DCMAKE_INSTALL_PREFIX=/usr/local .. && \
+    cmake \
+      -DBUILD_SHARED_LIBS=OFF \
+      -DCMAKE_INSTALL_PREFIX=/usr/local \
+      .. && \
     make all install
 
 ### libdevicemapper
@@ -96,14 +76,14 @@ ENV CRYPTSETUP_VER="2.5.0"
 RUN curl -sL https://www.kernel.org/pub/linux/utils/cryptsetup/v2.5/cryptsetup-${CRYPTSETUP_VER}.tar.xz | tar Jx
 
 RUN cd cryptsetup-${CRYPTSETUP_VER} && \
-    CFLAGS="$_TODO_PIE_CFLAGS" OPENSSL_STATIC_CFLAGS="$OPENSSL_CFLAGS" OPENSSL_STATIC_LIBS="$OPENSSL_LIBS" \
+    OPENSSL_STATIC_CFLAGS="$OPENSSL_CFLAGS" OPENSSL_STATIC_LIBS="$OPENSSL_LIBS" \
     ./configure \
     --disable-asciidoc \
     --disable-blkid \
     --disable-cryptsetup \
-    --disable-external \
     --disable-keyring \
     --disable-nls \
+    --disable-shared \
     --disable-ssh-token \
     --enable-static \
     --disable-udev \
@@ -112,6 +92,34 @@ RUN cd cryptsetup-${CRYPTSETUP_VER} && \
     make && make install
     # --disable-shared \
 
+### TPM2 TSS
+ENV TPM2_TSS_VER="3.2.0"
+RUN curl -sL https://github.com/tpm2-software/tpm2-tss/archive/refs/tags/${TPM2_TSS_VER}.tar.gz | tar xz
+
+# Hack in the release version so pkg-config will work
+RUN cd tpm2-tss-$TPM2_TSS_VER && \
+    sed -i "/AC_INIT/"'!'"b;n;c\[${TPM2_TSS_VER}\]," configure.ac
+
+ARG TPM_LUKS_BUILD_STATIC_TCTI=device
+
+RUN cd tpm2-tss-$TPM2_TSS_VER && \
+    ./bootstrap && \
+    CRYPTO_CFLAGS="$OPENSSL_CFLAGS" CRYPTO_LIBS="$OPENSSL_LIBS" \
+    ./configure \
+    --disable-doxygen-doc \
+    --disable-fapi \
+    --enable-nodl \
+    --disable-shared \
+    --enable-static \
+    $( for t in device swtpm mssim; do \
+      echo -n --$( [ "${TPM_LUKS_BUILD_STATIC_TCTI}" = "$t" ] && echo en || echo dis )able-tcti-$t\ ; \
+    done ) \
+    && \
+    make -j$(nproc) && \
+    make install
+
+FROM build-base AS rust
+
 ### Rust
 # install rust
 RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
@@ -119,13 +127,29 @@ RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
 # .cargo/bin in PATH is needed for running cargo, rustup etc.
 ENV PATH=/root/.cargo/bin:$PATH
 
+RUN cargo install cargo-chef
+
 ENV \
     PKG_CONFIG_ALL_STATIC=true \
+    RUSTFLAGS="-C relocation-model=static" \
     TPM_LUKS_BUILD_STATIC=1 \
+    TPM_LUKS_BUILD_STATIC_TCTI=${TPM_LUKS_BUILD_STATIC_TCTI} \
     TSS2_SYS_DYNAMIC=0 \
     TSS2_SYS_STATIC=1
 
 WORKDIR /workdir
 
-# HINT:
-# docker build -t tpm-luks-build -f Dockerfile-static-build . && docker run -it --rm -v $PWD:/workdir -v ~/.cargo/git:/root/.cargo/git -v ~/.cargo/registry:/root/.cargo/registry tpm-luks-build cargo build --release --target=x86_64-unknown-linux-musl -vv && ls -l target/x86_64-unknown-linux-musl/release/tpm-luks && ldd target/x86_64-unknown-linux-musl/release/tpm-luks
+FROM rust AS planner
+COPY . .
+RUN cargo chef prepare --recipe-path recipe.json
+
+FROM rust AS builder
+COPY --from=planner /workdir/recipe.json recipe.json
+RUN cargo chef cook --target x86_64-unknown-linux-musl --recipe-path recipe.json
+
+COPY . .
+RUN cargo build --release --target=x86_64-unknown-linux-musl
+
+FROM scratch AS binary
+
+COPY --from=builder /workdir/target/x86_64-unknown-linux-musl/release/tpm-luks .
