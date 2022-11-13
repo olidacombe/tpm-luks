@@ -142,17 +142,6 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Build image with dynamic release binary for `bats` testing
-        uses: docker/build-push-action@v2
-        with:
-          context: .
-          file: ./Dockerfile-bin-dyn
-          builder: ${{ steps.buildx.outputs.name }}
-          push: true
-          tags: ${{ steps.prep.outputs.tagged_image }}-dyn-test
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
-
       - name: Create encrypted disk image for tests
         run: |
           docker volume create test-data
@@ -165,6 +154,17 @@ jobs:
               -e TSS2_LOG=all+debug \
               olidacombe/tpm-luks-ci \
               ./make-luks-image.sh crypty
+
+      - name: Build image with dynamic release binary for `bats` testing
+        uses: docker/build-push-action@v2
+        with:
+          context: .
+          file: ./Dockerfile-bin-dyn
+          builder: ${{ steps.buildx.outputs.name }}
+          push: true
+          tags: ${{ steps.prep.outputs.tagged_image }}-dyn-test
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
 
       - name: Build bats testing image
         uses: docker/build-push-action@v2

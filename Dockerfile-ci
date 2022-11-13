@@ -4,9 +4,12 @@ RUN apt-get update
 RUN apt-get install -y \
 	bash \
 	build-essential \
+	cryptsetup-bin \
 	curl \
 	git \
 	libcryptsetup-dev \
 	libtss2-dev \
 	pkg-config \
 	tss2
+
+COPY ./make-luks-image.sh .
