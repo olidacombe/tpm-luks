@@ -2,6 +2,8 @@ use self::pcr::{AggregateDigest, PcrError};
 use ambassador::{delegatable_trait, Delegate};
 use once_cell::sync::Lazy;
 use pcr::{pcr_slot_to_handle, PcrPolicyOptions};
+use serde::Serialize;
+use std::collections::HashMap;
 use std::ops::{Deref, DerefMut};
 use std::sync::{Mutex, MutexGuard};
 use thiserror::Error;
@@ -16,7 +18,7 @@ use tss_esapi::interface_types::resource_handles::{Hierarchy, Provision};
 use tss_esapi::interface_types::session_handles::{AuthSession, HmacSession, PolicySession};
 use tss_esapi::structures::{
     CapabilityData, CreateKeyResult, CreatePrimaryKeyResult, Digest, DigestList, DigestValues,
-    EccPoint, KeyedHashScheme, PcrSelectionList, Public, PublicEccParametersBuilder,
+    EccPoint, KeyedHashScheme, PcrSelectionList, PcrSlot, Public, PublicEccParametersBuilder,
     PublicKeyedHashParameters, SensitiveData, SymmetricDefinition, SymmetricDefinitionObject,
 };
 
@@ -135,9 +137,11 @@ impl<C: TContext, S: ContextState> Ctx<C, S> {
 
     /// Retrieves a PCR digest list given a selection list
     fn digest_list(&mut self, pcr_selection_list: &PcrSelectionList) -> Result<DigestList> {
-        let (_update_counter, _selection_list, digest_list) = self
+        let (_update_counter, selection_list, digest_list) = self
             .ctx
             .execute_without_session(|ctx| ctx.pcr_read(pcr_selection_list.clone()))?;
+        log::debug!("selection_list: {:?}", selection_list);
+        log::debug!("digest_list: {:?}", &digest_list);
         Ok(digest_list)
     }
 
@@ -404,6 +408,22 @@ pub fn get_context() -> Result<InitialContext> {
 
 pub fn get_pcr_digest(pcr_selection_list: &PcrSelectionList) -> Result<Digest> {
     Ok(get_context()?.pcr_digest(pcr_selection_list, HashingAlgorithm::Sha256)?)
+}
+
+#[derive(Serialize)]
+struct PcrDigest(HashMap<PcrSlot, Digest>);
+
+#[derive(Serialize)]
+pub struct PcrDigests {
+    digests: HashMap<HashingAlgorithm, PcrDigest>,
+    digest: Digest,
+}
+
+pub fn get_pcr_digests(pcr_selection_list: &PcrSelectionList) -> Result<PcrDigests> {
+    let digest = get_context()?.pcr_digest(pcr_selection_list, HashingAlgorithm::Sha256)?;
+    let digests = HashMap::new();
+
+    Ok(PcrDigests { digest, digests })
 }
 
 pub fn seal_random_passphrase(
