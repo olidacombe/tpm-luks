@@ -44,7 +44,7 @@ setup() {
 @test "outputs PCR digest" {
     run tpm-luks digest
     assert_success
-    assert_output --partial "Current PCR Digest: "
+    assert_output --partial "digest: "
 }
 
 @test "seals and unseals" {

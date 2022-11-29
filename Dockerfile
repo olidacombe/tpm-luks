@@ -104,7 +104,9 @@ ARG TPM_LUKS_BUILD_STATIC_TCTI=device
 
 RUN cd tpm2-tss-$TPM2_TSS_VER && \
     ./bootstrap && \
-    CRYPTO_CFLAGS="$OPENSSL_CFLAGS" CRYPTO_LIBS="$OPENSSL_LIBS" \
+    CRYPTO_CFLAGS="$OPENSSL_CFLAGS" \
+    CRYPTO_LIBS="$OPENSSL_LIBS" \
+    CRYPTO_VERSION="$OPENSSL_VER" \
     ./configure \
     --disable-doxygen-doc \
     --disable-fapi \

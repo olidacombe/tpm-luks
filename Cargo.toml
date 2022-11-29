@@ -16,9 +16,12 @@ eyre = "0.6.8"
 hex = "0.4.3"
 log = "0.4.17"
 once_cell = "1.13.0"
+serde = { version = "1.0.147", features = ["derive"] }
+serde_yaml = "0.9.14"
+sha2 = "0.10.6"
 thiserror = "1.0.32"
 tracing = "0.1.34"
-tss-esapi = "7.1.0"
+tss-esapi = { git = "https://github.com/olidacombe/rust-tss-esapi", branch = "digest-serialization" }
 
 [dev-dependencies]
 eyre = "0.6.8"
