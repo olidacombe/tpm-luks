@@ -4,7 +4,7 @@ use crate::tpm::{get_pcr_digests, get_sealed_passphrase, seal_random_passphrase}
 use clap::{Parser, Subcommand};
 use eyre::{eyre, Result};
 use hex;
-use serde_json;
+use serde_yaml;
 use std::convert::TryInto;
 use std::env;
 use std::path::PathBuf;
@@ -126,10 +126,7 @@ impl Cli {
 
     fn show_pcr_digest(&self) -> Result<()> {
         let digests = get_pcr_digests(&self.pcrs)?;
-        println!(
-            "Current PCR Digests: {}",
-            serde_json::to_string_pretty(&digests)?
-        );
+        println!("{}", serde_yaml::to_string(&digests)?);
         Ok(())
     }
 }
