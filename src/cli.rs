@@ -1,9 +1,10 @@
 use crate::luks::{add_key_to_device, open_device};
 use crate::pcr::{parse_pcr_selection_list, PcrPolicyOptions};
-use crate::tpm::{get_pcr_digest, get_sealed_passphrase, seal_random_passphrase};
+use crate::tpm::{get_pcr_digests, get_sealed_passphrase, seal_random_passphrase};
 use clap::{Parser, Subcommand};
 use eyre::{eyre, Result};
 use hex;
+use serde_json;
 use std::convert::TryInto;
 use std::env;
 use std::path::PathBuf;
@@ -124,8 +125,11 @@ impl Cli {
     }
 
     fn show_pcr_digest(&self) -> Result<()> {
-        let digest = get_pcr_digest(&self.pcrs)?;
-        println!("Current PCR Digest: {}", hex::encode(digest.value()));
+        let digests = get_pcr_digests(&self.pcrs)?;
+        println!(
+            "Current PCR Digests: {}",
+            serde_json::to_string_pretty(&digests)?
+        );
         Ok(())
     }
 }
