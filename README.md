@@ -114,6 +114,27 @@ make push
 
 ## Development
 
+to start development run
+```bash
+lima # if you're not on amd64
+sudo apt install build-essential pkg-config libtss2-dev libcryptsetup-dev
+curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh # install rust
+export PATH=$HOME/.cargo/bin:$PATH
+make init # install development requirements
+make readme
+cargo build
+```
+
+For a more rapid development cycle, it's recommended to experiment on an appropriate machine.
+The flow involves writing dummy values for PCRs
+
+1. `ssh` into an appropriate box
+1. Find the partition that hosts the encrypted root with `lsblk`
+1. sudo `tpm-luks -p sha1:0,1,2,3,4,5,6,7 seal /dev/md127p4`
+1. test by running `make-luks-image.sh` and `losetup -f`
+1. To seal `sudo SEAL_PCRS=sha1:0,1,2,3,4,5,6,7 ENC_DEVICE=/dev/loop0 ENC_ROOT=crypto ./initramfs.sh`
+1. To clean up run `sudo cryptsetup remove crypty`
+
 > TODO a proper CONTRIBUTING.md
 
 ### On Linux with hardware TPM:
