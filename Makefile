@@ -1,7 +1,7 @@
 .PHONY: ci-image dev dev-image dev-local help init readme swtpm swtpm-image
 .DEFAULT_GOAL := help
 
-IMAGE_BASE ?= olidacombe
+IMAGE_BASE ?= eu.gcr.io/blockchain-internal/tinkerbell
 
 init: ## install required packages
 	cargo install cargo-readme

@@ -105,6 +105,13 @@ Options:
   -h, --help             Print help information
 ```
 
+## Build / Push
+
+```bash
+make build
+make push
+```
+
 ## Development
 
 > TODO a proper CONTRIBUTING.md
