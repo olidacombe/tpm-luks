@@ -114,7 +114,11 @@
 //!
 //! to start development run
 //! ```bash
-//! lima # if you're not on amd64
+//! # We use Lima if we're on aarch64
+//! # We need ssh access to get the private repositories
+//! eval `ssh-agent`
+//! ssh-add /Users/..../.ssh/...
+//! cd /Users/..../tpm-luks
 //! sudo apt install build-essential pkg-config libtss2-dev libcryptsetup-dev
 //! curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh # install rust
 //! export PATH=$HOME/.cargo/bin:$PATH
