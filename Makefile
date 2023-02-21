@@ -1,6 +1,8 @@
 .PHONY: ci-image dev dev-image dev-local help init readme swtpm swtpm-image
 .DEFAULT_GOAL := help
 
+IMAGE_BASE ?= olidacombe
+
 init: ## install required packages
 	cargo install cargo-readme
 
@@ -8,15 +10,15 @@ readme: ## render README.md from crate-level rustdoc
 	cargo readme > README.md
 
 swtpm-image: ## build software tpm docker image for testing against
-	docker build -t olidacombe/swtpm -f tests/Dockerfile-swtpm tests
+	docker build -t $(IMAGE_BASE)/swtpm -f tests/Dockerfile-swtpm tests
 
 swtpm: swtpm-image ## run software tpm service for test interaction
 	-docker kill swtpm
-	docker run -d --rm --name swtpm -p 2321:2321 -p 2322:2322 olidacombe/swtpm
+	docker run -d --rm --name swtpm -p 2321:2321 -p 2322:2322 $(IMAGE_BASE)/swtpm
 	sleep 2
 
 ci-image: ## build docker image with necessary dependencies to run CI tasks
-	docker build -t olidacombe/tpm-luks-ci -f Dockerfile-ci .
+	docker build -t $(IMAGE_BASE)/tpm-luks-ci -f Dockerfile-ci .
 
 dev-image: ci-image swtpm ## build docker image for use as a development environment
 	docker build -t tpm-luks-dev -f Dockerfile-dev .
@@ -36,3 +38,9 @@ help: ## Show this help
 
 sync-%: ## watch and sync files to test instance, e.g. `make sync-my-test-machine`
 	fswatch -o . | xargs -n1 -I{} ./sync.sh $*/
+
+build:
+	docker build -t $(IMAGE_BASE)/tpm-luks .
+
+push:
+	docker push $(IMAGE_BASE)/tpm-luks
